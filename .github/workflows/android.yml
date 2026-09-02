@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/r2-big-validation ]
   workflow_dispatch:
 
 jobs:
