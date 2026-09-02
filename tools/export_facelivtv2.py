@@ -13,7 +13,11 @@ from huggingface_hub import hf_hub_download
 
 UPSTREAM_COMMIT = "d99d86607c7c05540c74e815e5a88847f7e667db"
 MODEL_REPO = "novendrastywn/FaceLiVT"
-MODEL_FILE = "facelivtv2-s.pt"
+VARIANTS = {
+    "xs": ("facelivtv2-xs.pt", "facelivtv2_xs", "XS"),
+    "s": ("facelivtv2-s.pt", "facelivtv2_s", "S"),
+    "m": ("facelivtv2-m.pt", "facelivtv2_m", "M"),
+}
 
 
 def load_module(upstream: Path):
@@ -32,15 +36,18 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--upstream", required=True)
     p.add_argument("--output", required=True)
+    p.add_argument("--variant", choices=sorted(VARIANTS), default="s")
     args = p.parse_args()
 
+    model_file, factory_name, label = VARIANTS[args.variant]
     upstream = Path(args.upstream).resolve()
     output = Path(args.output).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    weights = hf_hub_download(repo_id=MODEL_REPO, filename=MODEL_FILE)
+    weights = hf_hub_download(repo_id=MODEL_REPO, filename=model_file)
     mod = load_module(upstream)
-    model = mod.facelivtv2_s(num_classes=512, distillation=False, pretrained=False)
+    factory = getattr(mod, factory_name)
+    model = factory(num_classes=512, distillation=False, pretrained=False)
     try:
         state = torch.load(weights, map_location="cpu", weights_only=True)
     except TypeError:
@@ -59,7 +66,7 @@ def main():
         dep = deployed(dummy).cpu().numpy()
     cosine = float(np.dot(ref.ravel(), dep.ravel()) / (np.linalg.norm(ref) * np.linalg.norm(dep) + 1e-12))
     if cosine < 0.99999:
-        raise RuntimeError(f"reparameterization fidelity failed: cosine={cosine}")
+        raise RuntimeError(f"FaceLiVTv2-{label} reparameterization fidelity failed: cosine={cosine}")
 
     torch.onnx.export(
         deployed,
@@ -78,9 +85,13 @@ def main():
     ort_out = session.run(None, {"input": dummy.numpy()})[0]
     ort_cos = float(np.dot(dep.ravel(), ort_out.ravel()) / (np.linalg.norm(dep) * np.linalg.norm(ort_out) + 1e-12))
     max_abs = float(np.max(np.abs(dep - ort_out)))
-    print(f"FaceLiVTv2-S export OK: reparam_cos={cosine:.8f}, onnx_cos={ort_cos:.8f}, max_abs={max_abs:.8g}, bytes={output.stat().st_size}")
+    print(
+        f"FaceLiVTv2-{label} export OK: "
+        f"reparam_cos={cosine:.8f}, onnx_cos={ort_cos:.8f}, "
+        f"max_abs={max_abs:.8g}, bytes={output.stat().st_size}"
+    )
     if ort_cos < 0.99999:
-        raise RuntimeError(f"ONNX fidelity failed: cosine={ort_cos}")
+        raise RuntimeError(f"FaceLiVTv2-{label} ONNX fidelity failed: cosine={ort_cos}")
 
 
 if __name__ == "__main__":
