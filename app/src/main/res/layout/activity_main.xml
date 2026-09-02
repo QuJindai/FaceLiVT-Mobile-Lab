@@ -13,8 +13,8 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top"
         android:orientation="horizontal"
-        android:padding="12dp"
-        android:background="#99000000">
+        android:padding="10dp"
+        android:background="#AA000000">
 
         <LinearLayout
             android:layout_width="0dp"
@@ -26,26 +26,35 @@
                 android:id="@+id/txtResult"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="模型初始化中"
+                android:text="R2 初始化中"
                 android:textColor="#FFFFFF"
-                android:textSize="24sp"
+                android:textSize="18sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/txtMetrics"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="3dp"
                 android:text="等待相机"
-                android:textColor="#DDFFFFFF"
-                android:textSize="12sp" />
+                android:textColor="#E6FFFFFF"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/txtPerf"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:text="性能/温度等待中"
+                android:textColor="#E6FFFFFF"
+                android:textSize="11sp" />
         </LinearLayout>
 
         <ImageView
             android:id="@+id/imgDegraded"
-            android:layout_width="120dp"
-            android:layout_height="78dp"
-            android:layout_marginStart="8dp"
+            android:layout_width="112dp"
+            android:layout_height="76dp"
+            android:layout_marginStart="6dp"
             android:background="#33000000"
             android:contentDescription="模型实际看到的降质画面"
             android:scaleType="centerCrop" />
@@ -56,27 +65,41 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:orientation="vertical"
-        android:padding="12dp"
-        android:background="#CC111111">
+        android:padding="10dp"
+        android:background="#DD111111">
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="虚拟廉价摄像头"
+            android:text="虚拟廉价摄像头 · R2"
             android:textColor="#FFFFFF"
             android:textStyle="bold" />
 
-        <Spinner
-            android:id="@+id/spinnerProfile"
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="48dp" />
+            android:layout_height="44dp"
+            android:orientation="horizontal">
+
+            <Spinner
+                android:id="@+id/spinnerProfile"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+
+            <Spinner
+                android:id="@+id/spinnerModel"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/txtThreshold"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="识别阈值 0.45"
-            android:textColor="#FFFFFF" />
+            android:textColor="#FFFFFF"
+            android:textSize="12sp" />
 
         <SeekBar
             android:id="@+id/seekThreshold"
@@ -87,13 +110,13 @@
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="48dp"
             android:orientation="horizontal">
 
             <EditText
                 android:id="@+id/editName"
                 android:layout_width="0dp"
-                android:layout_height="48dp"
+                android:layout_height="match_parent"
                 android:layout_weight="1"
                 android:hint="姓名/编号"
                 android:singleLine="true"
@@ -103,14 +126,28 @@
             <Button
                 android:id="@+id/btnEnroll"
                 android:layout_width="wrap_content"
-                android:layout_height="48dp"
-                android:text="录入×5" />
+                android:layout_height="match_parent"
+                android:text="三模型录入×5" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="46dp"
+            android:orientation="horizontal">
 
             <Button
                 android:id="@+id/btnSwitch"
-                android:layout_width="wrap_content"
-                android:layout_height="48dp"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
                 android:text="切相机" />
+
+            <Button
+                android:id="@+id/btnExport"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:text="导出 CSV" />
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>
