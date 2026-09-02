@@ -2,6 +2,7 @@
 import argparse
 import copy
 import importlib.util
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -17,9 +18,12 @@ MODEL_FILE = "facelivtv2-s.pt"
 
 def load_module(upstream: Path):
     path = upstream / "backbones" / "facelivtv2.py"
-    spec = importlib.util.spec_from_file_location("facelivtv2_upstream", path)
+    module_name = "facelivtv2_upstream"
+    spec = importlib.util.spec_from_file_location(module_name, path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
+    # timm.register_model() looks up the decorated function's module in sys.modules.
+    sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
 
