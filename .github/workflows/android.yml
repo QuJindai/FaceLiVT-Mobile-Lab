@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat/r2-big-validation ]
   workflow_dispatch:
 
 jobs:
@@ -28,19 +28,23 @@ jobs:
           cd upstream-facelivt
           git checkout d99d86607c7c05540c74e815e5a88847f7e667db
 
-      - name: Export FaceLiVTv2-S to ONNX and verify fidelity
+      - name: Export FaceLiVTv2 XS S M and verify fidelity
         env:
           HF_HUB_DISABLE_TELEMETRY: '1'
         run: |
-          python tools/export_facelivtv2.py --upstream upstream-facelivt --output app/src/main/assets/facelivtv2_s.onnx
-          ls -lh app/src/main/assets/facelivtv2_s.onnx
+          python tools/export_facelivtv2.py --variant xs --upstream upstream-facelivt --output app/src/main/assets/facelivtv2_xs.onnx
+          python tools/export_facelivtv2.py --variant s  --upstream upstream-facelivt --output app/src/main/assets/facelivtv2_s.onnx
+          python tools/export_facelivtv2.py --variant m  --upstream upstream-facelivt --output app/src/main/assets/facelivtv2_m.onnx
+          ls -lh app/src/main/assets/facelivtv2_*.onnx
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install Android SDK
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
@@ -52,14 +56,28 @@ jobs:
       - name: Unit tests and APK
         run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
 
-      - name: APK metadata
+      - name: Verify R2 APK contents and ABI
         run: |
-          sha256sum app/build/outputs/apk/debug/app-debug.apk
-          ls -lh app/build/outputs/apk/debug/app-debug.apk
+          SRC=app/build/outputs/apk/debug/app-debug.apk
+          APK=FaceLiVT-Mobile-Lab-R2-debug.apk
+          cp "$SRC" "$APK"
+          CONTENTS="$(unzip -Z1 "$APK")"
+          for model in facelivtv2_xs.onnx facelivtv2_s.onnx facelivtv2_m.onnx; do
+            echo "$CONTENTS" | grep -qx "assets/$model" || { echo "missing assets/$model"; exit 1; }
+          done
+          echo "$CONTENTS" | grep -q '^lib/arm64-v8a/' || { echo "arm64-v8a native libs missing"; exit 1; }
+          BAD_ABI="$(echo "$CONTENTS" | grep '^lib/' | grep -v '^lib/arm64-v8a/' || true)"
+          if [ -n "$BAD_ABI" ]; then
+            echo "unexpected native ABI entries:"
+            echo "$BAD_ABI"
+            exit 1
+          fi
+          sha256sum "$APK"
+          ls -lh "$APK"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FaceLiVT-Mobile-Lab-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: FaceLiVT-Mobile-Lab-R2-debug-apk
+          path: FaceLiVT-Mobile-Lab-R2-debug.apk
           if-no-files-found: error
           retention-days: 30

@@ -1,9 +1,13 @@
-FaceLiVTv2-S model attribution
+FaceLiVTv2 XS / S / M model attribution
 
-Model: FaceLiVTv2-S
+Models:
+- FaceLiVTv2-XS
+- FaceLiVTv2-S
+- FaceLiVTv2-M
+
 Author repository: https://github.com/novendrastywn/FaceLiVT
 Model weights: https://huggingface.co/novendrastywn/FaceLiVT
 Upstream code license: BSD 3-Clause
-Hugging Face model card license statement: CC BY-SA 4.0
+Hugging Face model repository license statement: CC BY-SA 4.0
 
-This APK is an engineering validation prototype. The FaceLiVTv2-S checkpoint is downloaded from the author's public Hugging Face repository during the reproducible CI build and converted to ONNX without training or weight modification beyond deployment reparameterization/format conversion.
+This APK is an engineering validation prototype. The FaceLiVTv2 XS, S and M checkpoints are downloaded from the author's public Hugging Face repository during the reproducible CI build and converted to ONNX without training or weight modification beyond the upstream deployment reparameterization and format conversion.

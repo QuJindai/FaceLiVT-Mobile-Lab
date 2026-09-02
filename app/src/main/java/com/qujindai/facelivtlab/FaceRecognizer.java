@@ -20,8 +20,16 @@ public final class FaceRecognizer implements AutoCloseable {
     private final String inputName;
 
     public FaceRecognizer(Context context) throws Exception {
+        this(context, ModelVariant.S);
+    }
+
+    public FaceRecognizer(Context context, ModelVariant variant) throws Exception {
+        this(context, variant.assetName);
+    }
+
+    public FaceRecognizer(Context context, String assetName) throws Exception {
         env = OrtEnvironment.getEnvironment();
-        byte[] model = readAsset(context, "facelivtv2_s.onnx");
+        byte[] model = readAsset(context, assetName);
         OrtSession.SessionOptions options = new OrtSession.SessionOptions();
         options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
         options.setIntraOpNumThreads(Math.max(2, Runtime.getRuntime().availableProcessors() / 2));

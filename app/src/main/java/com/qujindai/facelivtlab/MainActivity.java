@@ -35,7 +35,9 @@ import com.google.mlkit.vision.face.FaceDetection;
 import com.google.mlkit.vision.face.FaceDetector;
 import com.google.mlkit.vision.face.FaceDetectorOptions;
 
+import java.io.File;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -45,54 +47,59 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class MainActivity extends AppCompatActivity {
     private static final int REQ_CAMERA = 10;
-    private static final long FRAME_INTERVAL_MS = 220;
+    private static final long FRAME_INTERVAL_MS = 180;
 
     private PreviewView previewView;
     private ImageView imgDegraded;
     private TextView txtResult;
     private TextView txtMetrics;
+    private TextView txtPerf;
     private TextView txtThreshold;
     private Spinner spinnerProfile;
+    private Spinner spinnerModel;
     private EditText editName;
 
     private final ExecutorService cameraExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean busy = new AtomicBoolean(false);
     private final AtomicInteger enrollmentRemaining = new AtomicInteger(0);
+    private final EnumMap<ModelVariant, TemporalEmbeddingBuffer> fusion = new EnumMap<>(ModelVariant.class);
+    private final EnumMap<ModelVariant, PerformanceWindow> performance = new EnumMap<>(ModelVariant.class);
+    private final SessionLogger sessionLogger = new SessionLogger();
+
     private volatile String enrollmentName;
     private volatile DegradationProfile profile = DegradationProfile.P480;
+    private volatile ModelMode modelMode = ModelMode.S;
     private volatile float threshold = 0.45f;
     private volatile int lensFacing = CameraSelector.LENS_FACING_FRONT;
     private long lastFrameMs = 0;
+    private long noTrackingSequence = 0;
 
     private FaceDetector detector;
-    private FaceRecognizer recognizer;
+    private RecognizerBank recognizerBank;
     private FaceStore faceStore;
     private ProcessCameraProvider cameraProvider;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        for (ModelVariant variant : ModelVariant.values()) {
+            fusion.put(variant, new TemporalEmbeddingBuffer(5));
+            performance.put(variant, new PerformanceWindow(30));
+        }
         bindViews();
         setupUi();
         faceStore = new FaceStore(this);
+        recognizerBank = new RecognizerBank(getApplicationContext());
 
         FaceDetectorOptions options = new FaceDetectorOptions.Builder()
                 .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
                 .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
                 .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_NONE)
-                .setMinFaceSize(0.06f)
+                .setMinFaceSize(0.04f)
                 .enableTracking()
                 .build();
         detector = FaceDetection.getClient(options);
-
-        cameraExecutor.execute(() -> {
-            try {
-                recognizer = new FaceRecognizer(getApplicationContext());
-                runOnUiThread(() -> txtResult.setText("FaceLiVTv2-S 已就绪"));
-            } catch (Exception e) {
-                runOnUiThread(() -> txtResult.setText("模型加载失败: " + e.getClass().getSimpleName()));
-            }
-        });
+        txtResult.setText("R2 已就绪 · 默认 FaceLiVTv2-S");
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             startCamera();
@@ -106,27 +113,45 @@ public class MainActivity extends AppCompatActivity {
         imgDegraded = findViewById(R.id.imgDegraded);
         txtResult = findViewById(R.id.txtResult);
         txtMetrics = findViewById(R.id.txtMetrics);
+        txtPerf = findViewById(R.id.txtPerf);
         txtThreshold = findViewById(R.id.txtThreshold);
         spinnerProfile = findViewById(R.id.spinnerProfile);
+        spinnerModel = findViewById(R.id.spinnerModel);
         editName = findViewById(R.id.editName);
         Button btnEnroll = findViewById(R.id.btnEnroll);
         Button btnSwitch = findViewById(R.id.btnSwitch);
+        Button btnExport = findViewById(R.id.btnExport);
 
         btnEnroll.setOnClickListener(v -> beginEnrollment());
         btnSwitch.setOnClickListener(v -> {
             lensFacing = lensFacing == CameraSelector.LENS_FACING_FRONT
                     ? CameraSelector.LENS_FACING_BACK : CameraSelector.LENS_FACING_FRONT;
+            clearFusion();
             bindCameraUseCases();
         });
+        btnExport.setOnClickListener(v -> exportSession());
     }
 
     private void setupUi() {
         DegradationProfile[] profiles = DegradationProfile.values();
-        ArrayAdapter<DegradationProfile> adapter = new ArrayAdapter<>(this,
+        ArrayAdapter<DegradationProfile> profileAdapter = new ArrayAdapter<>(this,
                 android.R.layout.simple_spinner_dropdown_item, profiles);
-        spinnerProfile.setAdapter(adapter);
+        spinnerProfile.setAdapter(profileAdapter);
         spinnerProfile.setSelection(3);
-        spinnerProfile.setOnItemSelectedListener(new SimpleItemSelectedListener(position -> profile = profiles[position]));
+        spinnerProfile.setOnItemSelectedListener(new SimpleItemSelectedListener(position -> {
+            profile = profiles[position];
+            clearFusion();
+        }));
+
+        ModelMode[] modes = ModelMode.values();
+        ArrayAdapter<ModelMode> modeAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item, modes);
+        spinnerModel.setAdapter(modeAdapter);
+        spinnerModel.setSelection(0);
+        spinnerModel.setOnItemSelectedListener(new SimpleItemSelectedListener(position -> {
+            modelMode = modes[position];
+            clearFusion();
+        }));
 
         SeekBar seek = findViewById(R.id.seekThreshold);
         updateThreshold(seek.getProgress());
@@ -150,7 +175,17 @@ public class MainActivity extends AppCompatActivity {
         }
         enrollmentName = name;
         enrollmentRemaining.set(5);
-        txtResult.setText("开始录入 " + name + "，保持脸在画面中");
+        clearFusion();
+        txtResult.setText("三模型同步录入 " + name + " · 还需 5 帧");
+    }
+
+    private void exportSession() {
+        try {
+            File file = sessionLogger.exportCsv(this);
+            txtResult.setText("CSV 已导出 · " + sessionLogger.size() + " 条\n" + file.getAbsolutePath());
+        } catch (Exception e) {
+            txtResult.setText("CSV 导出失败: " + e.getClass().getSimpleName());
+        }
     }
 
     private void startCamera() {
@@ -212,87 +247,152 @@ public class MainActivity extends AppCompatActivity {
 
         DegradationProfile active = profile;
         Bitmap degraded = FrameDegrader.apply(raw, active);
+        int[] assisted = LowResPolicy.assistedSize(degraded.getWidth(), degraded.getHeight());
+        Bitmap detectorBitmap = assisted[0] == degraded.getWidth() && assisted[1] == degraded.getHeight()
+                ? degraded : Bitmap.createScaledBitmap(degraded, assisted[0], assisted[1], true);
         runOnUiThread(() -> imgDegraded.setImageBitmap(degraded));
 
         long detectStart = SystemClock.elapsedRealtimeNanos();
-        detector.process(InputImage.fromBitmap(degraded, 0))
+        detector.process(InputImage.fromBitmap(detectorBitmap, 0))
                 .addOnSuccessListener(cameraExecutor, faces -> {
                     long detectMs = (SystemClock.elapsedRealtimeNanos() - detectStart) / 1_000_000L;
-                    handleFaces(faces, degraded, sourceW, sourceH, active, detectMs);
+                    handleFaces(faces, degraded, detectorBitmap, sourceW, sourceH, active, detectMs);
                 })
                 .addOnFailureListener(cameraExecutor, e -> runOnUiThread(() -> txtResult.setText("检测失败")))
                 .addOnCompleteListener(cameraExecutor, task -> busy.set(false));
     }
 
-    private void handleFaces(List<Face> faces, Bitmap degraded, int sourceW, int sourceH,
-                             DegradationProfile active, long detectMs) {
+    private void handleFaces(List<Face> faces, Bitmap degraded, Bitmap detectorBitmap,
+                             int sourceW, int sourceH, DegradationProfile active, long detectMs) {
         if (faces.isEmpty()) {
+            ThermalProbe.Snapshot thermal = ThermalProbe.read(this);
             runOnUiThread(() -> {
                 txtResult.setText("未检测到人脸");
-                txtMetrics.setText(metricLine(sourceW, sourceH, degraded, active, 0, 0, detectMs, 0));
+                txtMetrics.setText(metricLine(sourceW, sourceH, degraded, detectorBitmap, active, 0, 0, detectMs));
+                txtPerf.setText(thermalLine(thermal));
             });
             return;
         }
-        Face face = faces.stream().max(Comparator.comparingInt(f -> f.getBoundingBox().width() * f.getBoundingBox().height())).orElse(faces.get(0));
-        int faceW = face.getBoundingBox().width();
-        int faceH = face.getBoundingBox().height();
 
-        FaceRecognizer localRecognizer = recognizer;
-        if (localRecognizer == null) {
-            runOnUiThread(() -> txtResult.setText("模型仍在初始化"));
-            return;
-        }
+        Face face = faces.stream()
+                .max(Comparator.comparingInt(f -> f.getBoundingBox().width() * f.getBoundingBox().height()))
+                .orElse(faces.get(0));
+        int faceW = Math.max(1, Math.round(face.getBoundingBox().width() * degraded.getWidth() / (float) detectorBitmap.getWidth()));
+        int faceH = Math.max(1, Math.round(face.getBoundingBox().height() * degraded.getHeight() / (float) detectorBitmap.getHeight()));
+        Integer tracked = face.getTrackingId();
+        int trackingId = tracked != null ? tracked : -1 - (int)(++noTrackingSequence & 0x3fffffff);
+        ThermalProbe.Snapshot thermal = ThermalProbe.read(this);
 
         try {
-            Bitmap aligned = FaceAligner.align(degraded, face);
-            long inferStart = SystemClock.elapsedRealtimeNanos();
-            float[] embedding = localRecognizer.embed(aligned);
-            long inferMs = (SystemClock.elapsedRealtimeNanos() - inferStart) / 1_000_000L;
-
-            int remain = enrollmentRemaining.get();
-            if (remain > 0 && enrollmentName != null) {
-                String name = enrollmentName;
-                faceStore.addSample(name, embedding);
-                int left = enrollmentRemaining.decrementAndGet();
-                if (left == 0) enrollmentName = null;
-                int totalIds = faceStore.identityCount();
-                runOnUiThread(() -> {
-                    txtResult.setText(left > 0 ? ("录入 " + name + "：还需 " + left + " 帧") : ("录入完成：" + name));
-                    txtMetrics.setText(metricLine(sourceW, sourceH, degraded, active, faceW, faceH, detectMs, inferMs)
-                            + " | 库=" + totalIds);
-                });
+            Bitmap aligned = FaceAligner.align(detectorBitmap, face);
+            if (enrollmentRemaining.get() > 0 && enrollmentName != null) {
+                handleEnrollment(aligned, trackingId, degraded, detectorBitmap, sourceW, sourceH,
+                        active, faceW, faceH, detectMs, thermal);
                 return;
             }
-
-            FaceStore.Match match = faceStore.bestMatch(embedding);
-            final String resultText;
-            final float sim;
-            if (match == null) {
-                resultText = "人脸库为空：先录入";
-                sim = 0f;
-            } else {
-                sim = match.similarity;
-                resultText = sim >= threshold
-                        ? String.format(Locale.US, "%s  %.3f", match.name, sim)
-                        : String.format(Locale.US, "UNKNOWN  %.3f (Top1 %s)", sim, match.name);
-            }
-            int totalIds = faceStore.identityCount();
-            runOnUiThread(() -> {
-                txtResult.setText(resultText);
-                txtMetrics.setText(metricLine(sourceW, sourceH, degraded, active, faceW, faceH, detectMs, inferMs)
-                        + " | 阈值=" + String.format(Locale.US, "%.2f", threshold) + " | 库=" + totalIds);
-            });
+            handleRecognition(aligned, trackingId, degraded, detectorBitmap, sourceW, sourceH,
+                    active, faceW, faceH, detectMs, thermal);
         } catch (Exception e) {
-            runOnUiThread(() -> txtResult.setText("识别失败: " + e.getClass().getSimpleName()));
+            runOnUiThread(() -> txtResult.setText("识别失败: " + e.getClass().getSimpleName() + " · " + safeMessage(e)));
         }
     }
 
-    private static String metricLine(int sourceW, int sourceH, Bitmap degraded, DegradationProfile active,
-                                     int faceW, int faceH, long detectMs, long inferMs) {
+    private void handleEnrollment(Bitmap aligned, int trackingId, Bitmap degraded, Bitmap detectorBitmap,
+                                  int sourceW, int sourceH, DegradationProfile active, int faceW, int faceH,
+                                  long detectMs, ThermalProbe.Snapshot thermal) throws Exception {
+        String name = enrollmentName;
+        StringBuilder timing = new StringBuilder();
+        for (ModelVariant variant : ModelVariant.values()) {
+            RecognizerBank.TimedEmbedding te = recognizerBank.embed(variant, aligned);
+            faceStore.addSample(name, variant, te.embedding);
+            performance.get(variant).add(detectMs, te.inferMs, detectMs + te.inferMs);
+            if (timing.length() > 0) timing.append(" · ");
+            timing.append(variant.storageKey).append(' ').append(te.inferMs).append("ms");
+        }
+        int left = enrollmentRemaining.decrementAndGet();
+        if (left == 0) enrollmentName = null;
+        int totalIds = faceStore.identityCount();
+        runOnUiThread(() -> {
+            txtResult.setText(left > 0
+                    ? ("三模型同步录入 " + name + " · 还需 " + left + " 帧")
+                    : ("三模型录入完成 · " + name));
+            txtMetrics.setText(metricLine(sourceW, sourceH, degraded, detectorBitmap, active, faceW, faceH, detectMs)
+                    + " | 库=" + totalIds);
+            txtPerf.setText(timing + "\n" + thermalLine(thermal));
+        });
+    }
+
+    private void handleRecognition(Bitmap aligned, int trackingId, Bitmap degraded, Bitmap detectorBitmap,
+                                   int sourceW, int sourceH, DegradationProfile active, int faceW, int faceH,
+                                   long detectMs, ThermalProbe.Snapshot thermal) throws Exception {
+        StringBuilder results = new StringBuilder();
+        StringBuilder perfText = new StringBuilder();
+        long timestamp = System.currentTimeMillis();
+
+        for (ModelVariant variant : modelMode.variants()) {
+            RecognizerBank.TimedEmbedding te = recognizerBank.embed(variant, aligned);
+            float[] fused = fusion.get(variant).push(trackingId, te.embedding);
+            int fusedFrames = fusion.get(variant).size();
+            FaceStore.Match match = faceStore.bestMatch(variant, fused);
+            float similarity = match == null ? 0f : match.similarity;
+            boolean accepted = match != null && similarity >= threshold;
+            String top1 = match == null ? "" : match.name;
+            long totalMs = detectMs + te.inferMs;
+            performance.get(variant).add(detectMs, te.inferMs, totalMs);
+            sessionLogger.add(timestamp, active.label, variant,
+                    sourceW, sourceH, degraded.getWidth(), degraded.getHeight(),
+                    detectorBitmap.getWidth(), detectorBitmap.getHeight(), faceW, faceH,
+                    top1, similarity, accepted, fusedFrames, detectMs, te.inferMs, totalMs, thermal);
+
+            if (results.length() > 0) results.append('\n');
+            if (match == null) {
+                results.append(variant.storageKey).append("  无模板");
+            } else if (accepted) {
+                results.append(String.format(Locale.US, "%s  %s  %.3f  [%df]", variant.storageKey, match.name, similarity, fusedFrames));
+            } else {
+                results.append(String.format(Locale.US, "%s  UNKNOWN %.3f (Top1 %s) [%df]", variant.storageKey, similarity, match.name, fusedFrames));
+            }
+
+            PerformanceWindow window = performance.get(variant);
+            double avgTotal = window.avgTotalMs();
+            double fps = avgTotal > 0 ? 1000.0 / avgTotal : 0.0;
+            if (perfText.length() > 0) perfText.append(" | ");
+            perfText.append(String.format(Locale.US, "%s infer %.1fms total %.1fms %.1ffps",
+                    variant.storageKey, window.avgInferMs(), avgTotal, fps));
+        }
+
+        int totalIds = faceStore.identityCount();
+        runOnUiThread(() -> {
+            txtResult.setText(results.toString());
+            txtMetrics.setText(metricLine(sourceW, sourceH, degraded, detectorBitmap, active, faceW, faceH, detectMs)
+                    + " | 阈值=" + String.format(Locale.US, "%.2f", threshold) + " | 库=" + totalIds + " | CSV=" + sessionLogger.size());
+            txtPerf.setText(perfText + "\n" + thermalLine(thermal));
+        });
+    }
+
+    private void clearFusion() {
+        for (TemporalEmbeddingBuffer buffer : fusion.values()) buffer.clear();
+    }
+
+    private static String metricLine(int sourceW, int sourceH, Bitmap degraded, Bitmap detectorBitmap,
+                                     DegradationProfile active, int faceW, int faceH, long detectMs) {
+        String assist = degraded.getWidth() == detectorBitmap.getWidth() && degraded.getHeight() == detectorBitmap.getHeight()
+                ? "无" : detectorBitmap.getWidth() + "x" + detectorBitmap.getHeight();
         return String.format(Locale.US,
-                "源 %dx%d → 模拟 %dx%d (%s) | 脸 %dx%d px | detect %d ms | embed %d ms",
+                "源 %dx%d → 模拟 %dx%d (%s) → 检测辅助 %s | 有效脸 %dx%d px | detect %dms",
                 sourceW, sourceH, degraded.getWidth(), degraded.getHeight(), active.label,
-                faceW, faceH, detectMs, inferMs);
+                assist, faceW, faceH, detectMs);
+    }
+
+    private static String thermalLine(ThermalProbe.Snapshot thermal) {
+        String battery = Float.isNaN(thermal.batteryC) ? "N/A" : String.format(Locale.US, "%.1f°C", thermal.batteryC);
+        return "电池 " + battery + " | Thermal " + thermal.thermalLabel;
+    }
+
+    private static String safeMessage(Exception e) {
+        String message = e.getMessage();
+        if (message == null || message.isEmpty()) return "";
+        return message.length() > 80 ? message.substring(0, 80) : message;
     }
 
     private static Bitmap rotate(Bitmap bitmap, int degrees) {
@@ -314,7 +414,7 @@ public class MainActivity extends AppCompatActivity {
     @Override protected void onDestroy() {
         super.onDestroy();
         if (detector != null) detector.close();
-        try { if (recognizer != null) recognizer.close(); } catch (Exception ignored) {}
+        try { if (recognizerBank != null) recognizerBank.close(); } catch (Exception ignored) {}
         cameraExecutor.shutdownNow();
     }
 
