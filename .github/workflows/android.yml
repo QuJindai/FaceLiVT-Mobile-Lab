@@ -37,7 +37,7 @@ jobs:
           python tools/export_facelivtv2.py --variant m  --upstream upstream-facelivt --output app/src/main/assets/facelivtv2_m.onnx
           ls -lh app/src/main/assets/facelivtv2_*.onnx
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
