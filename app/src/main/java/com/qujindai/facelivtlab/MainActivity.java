@@ -82,6 +82,8 @@ public class MainActivity extends AppCompatActivity {
     private TextView txtRecognitionQuality;
     private TextView txtPipeline;
     private TextView txtRecognitionFormula;
+    private TextView txtEnrollmentGeometry;
+    private TextView txtGeometryMicroscope;
     private Spinner spinnerProfile;
     private Spinner spinnerRecognitionProfile;
     private Spinner spinnerModel;
@@ -99,16 +101,15 @@ public class MainActivity extends AppCompatActivity {
     private TopKBarView topKChart;
     private TrendChartView trendChart;
     private SeekBar seekThreshold;
+    private BlockMicroscopeView enrollmentModelMicroscope;
+    private BlockMicroscopeView recognitionModelMicroscope;
+    private ModelComparisonView modelComparisonView;
+    private MatrixDeltaView deltaXsS;
+    private MatrixDeltaView deltaMS;
 
     private R31CalibrationPanel calibrationPanel;
     private ProbeEmbeddingView probeEmbeddingView;
     private TextView txtProbeEmbeddingInfo;
-
-    private ModelArchitectureView enrollmentArchitectureView;
-    private ModelArchitectureView recognitionArchitectureView;
-    private CrossModelComparisonView crossModelComparisonView;
-    private AlignmentGeometryView alignmentGeometryView;
-    private BlockDiagnosticsView blockDiagnosticsView;
 
     private final ExecutorService cameraExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean busy = new AtomicBoolean(false);
@@ -118,6 +119,8 @@ public class MainActivity extends AppCompatActivity {
     private final SessionLogger sessionLogger = new SessionLogger();
     private final RecognitionTrend recognitionTrend = new RecognitionTrend(30);
     private final MicroscopeSelectionState microscopeSelection = new MicroscopeSelectionState();
+    private final EnumMap<ModelVariant, DeepModelStats> latestDeepStats = new EnumMap<>(ModelVariant.class);
+    private final List<AlignmentGeometry> enrollmentGeometries = new ArrayList<>();
 
     private volatile String enrollmentName;
     private volatile DegradationProfile profile = DegradationProfile.P480;
@@ -145,6 +148,7 @@ public class MainActivity extends AppCompatActivity {
     private String probeProjectionKey = "";
     private final List<float[]> probeTrail = new ArrayList<>();
     private int lastProbeTrackingId = Integer.MIN_VALUE;
+    private volatile long lastDeepDiagnosticMs = 0L;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -162,7 +166,6 @@ public class MainActivity extends AppCompatActivity {
         recognizerBank = new RecognizerBank(getApplicationContext());
         setupUi();
         installR31Panels();
-        installR4Panels();
         compactCameraStage();
 
         FaceDetectorOptions options = new FaceDetectorOptions.Builder()
@@ -173,7 +176,7 @@ public class MainActivity extends AppCompatActivity {
                 .enableTracking()
                 .build();
         detector = FaceDetection.getClient(options);
-        txtResult.setText("R4 已就绪 · 几何 + 向量 + 18 Block 统一显微镜");
+        txtResult.setText("R4 已就绪 · 几何 + 向量 + 18 Block 深层显微镜");
         showPage(Page.ENROLLMENT);
         refreshCalibration(ModelVariant.S);
         updateActionState();
@@ -230,6 +233,8 @@ public class MainActivity extends AppCompatActivity {
         txtRecognitionQuality = findViewById(R.id.txtRecognitionQuality);
         txtPipeline = findViewById(R.id.txtPipeline);
         txtRecognitionFormula = findViewById(R.id.txtRecognitionFormula);
+        txtEnrollmentGeometry = findViewById(R.id.txtEnrollmentGeometry);
+        txtGeometryMicroscope = findViewById(R.id.txtGeometryMicroscope);
         spinnerProfile = findViewById(R.id.spinnerProfile);
         spinnerRecognitionProfile = findViewById(R.id.spinnerRecognitionProfile);
         spinnerModel = findViewById(R.id.spinnerModel);
@@ -247,6 +252,11 @@ public class MainActivity extends AppCompatActivity {
         topKChart = findViewById(R.id.topKChart);
         trendChart = findViewById(R.id.trendChart);
         seekThreshold = findViewById(R.id.seekThreshold);
+        enrollmentModelMicroscope = findViewById(R.id.enrollmentModelMicroscope);
+        recognitionModelMicroscope = findViewById(R.id.recognitionModelMicroscope);
+        modelComparisonView = findViewById(R.id.modelComparisonView);
+        deltaXsS = findViewById(R.id.deltaXsS);
+        deltaMS = findViewById(R.id.deltaMS);
 
         tabEnrollment.setOnClickListener(v -> showPage(Page.ENROLLMENT));
         tabRecognition.setOnClickListener(v -> showPage(Page.RECOGNITION));
@@ -338,6 +348,8 @@ public class MainActivity extends AppCompatActivity {
         recognitionTrend.clear();
         lastDisplayTop = new ArrayList<>();
         clearProbeProjection();
+        lastDeepDiagnosticMs = 0L;
+        if (recognitionModelMicroscope != null) recognitionModelMicroscope.clearStats(ModelTopology.forVariant(focus));
         refreshCalibration(focus);
         renderRecognitionModelPendingState(selection);
         updateActionState();
@@ -372,12 +384,7 @@ public class MainActivity extends AppCompatActivity {
         if (txtProbeEmbeddingInfo != null) {
             txtProbeEmbeddingInfo.setText("显微镜焦点 " + focus.storageKey + " · 等待该模型 Probe。2D 只观察，最终仍用 512D cosine。");
         }
-        if (recognitionArchitectureView != null) {
-            recognitionArchitectureView.setVariant(ModelArchitectureSpec.forVariant(focus));
-        }
-        if (blockDiagnosticsView != null) {
-            blockDiagnosticsView.clearForVariant(ModelArchitectureSpec.forVariant(focus));
-        }
+        if (recognitionModelMicroscope != null) recognitionModelMicroscope.clearStats(ModelTopology.forVariant(focus));
     }
 
     private static int variantIndex(ModelVariant variant) {
@@ -427,80 +434,6 @@ public class MainActivity extends AppCompatActivity {
         content.addView(title, insert++, titleLp);
         content.addView(txtProbeEmbeddingInfo, insert++, infoLp);
         content.addView(probeEmbeddingView, insert, plotLp);
-    }
-
-
-    private void installR4Panels() {
-        View top = findViewById(R.id.topOverlay);
-        if (top instanceof ViewGroup && ((ViewGroup) top).getChildCount() > 0) {
-            View row = ((ViewGroup) top).getChildAt(0);
-            if (row instanceof ViewGroup && ((ViewGroup) row).getChildCount() > 0) {
-                View title = ((ViewGroup) row).getChildAt(0);
-                if (title instanceof TextView) ((TextView) title).setText("FaceLiVT R4 · 人脸显微镜");
-            }
-        }
-
-        enrollmentArchitectureView = new ModelArchitectureView(this);
-        recognitionArchitectureView = new ModelArchitectureView(this);
-        crossModelComparisonView = new CrossModelComparisonView(this);
-        alignmentGeometryView = new AlignmentGeometryView(this);
-        blockDiagnosticsView = new BlockDiagnosticsView(this);
-
-        LinearLayout.LayoutParams panelLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        panelLp.topMargin = dp(7);
-
-        if (pageEnrollment instanceof ScrollView) {
-            View child = ((ScrollView) pageEnrollment).getChildAt(0);
-            if (child instanceof LinearLayout) {
-                LinearLayout content = (LinearLayout) child;
-                View inspectRow = spinnerEnrollmentInspectModel.getParent() instanceof View
-                        ? (View) spinnerEnrollmentInspectModel.getParent() : null;
-                int inspectIndex = inspectRow == null ? -1 : content.indexOfChild(inspectRow);
-                content.addView(enrollmentArchitectureView,
-                        inspectIndex >= 0 ? inspectIndex + 1 : content.getChildCount(), panelLp);
-
-                int scatterIndex = content.indexOfChild(embeddingScatter);
-                LinearLayout.LayoutParams crossLp = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                crossLp.topMargin = dp(8);
-                content.addView(crossModelComparisonView,
-                        scatterIndex >= 0 ? scatterIndex + 1 : content.getChildCount(), crossLp);
-            }
-        }
-
-        if (pageRecognition instanceof ScrollView) {
-            View child = ((ScrollView) pageRecognition).getChildAt(0);
-            if (child instanceof LinearLayout) {
-                LinearLayout content = (LinearLayout) child;
-                int thresholdIndex = content.indexOfChild(seekThreshold);
-                content.addView(recognitionArchitectureView,
-                        thresholdIndex >= 0 ? thresholdIndex + 1 : 0, panelLp);
-
-                View qualityRow = imgAlignedProbe.getParent() instanceof View
-                        ? (View) imgAlignedProbe.getParent() : null;
-                int qualityIndex = qualityRow == null ? -1 : content.indexOfChild(qualityRow);
-                LinearLayout.LayoutParams geometryLp = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                geometryLp.topMargin = dp(7);
-                content.addView(alignmentGeometryView,
-                        qualityIndex >= 0 ? qualityIndex + 1 : content.getChildCount(), geometryLp);
-
-                int pipelineIndex = content.indexOfChild(txtPipeline);
-                LinearLayout.LayoutParams blockLp = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                blockLp.topMargin = dp(7);
-                content.addView(blockDiagnosticsView,
-                        pipelineIndex >= 0 ? pipelineIndex + 1 : content.getChildCount(), blockLp);
-            }
-        }
-
-        enrollmentArchitectureView.setVariant(ModelArchitectureSpec.forVariant(inspectVariant));
-        ModelVariant focus = microscopeSelection.snapshot().focus;
-        recognitionArchitectureView.setVariant(ModelArchitectureSpec.forVariant(focus));
-        blockDiagnosticsView.clearForVariant(ModelArchitectureSpec.forVariant(focus));
-        crossModelComparisonView.clear();
-        alignmentGeometryView.clear();
     }
 
     private void compactCameraStage() {
@@ -588,14 +521,18 @@ public class MainActivity extends AppCompatActivity {
         if (!cameraReady) { Toast.makeText(this, "相机尚未就绪", Toast.LENGTH_SHORT).show(); return; }
         enrollmentSession = new EnrollmentSession();
         completedEnrollmentSession = null;
+        enrollmentGeometries.clear();
         enrollmentName = name;
         enrollmentProfileAtStart = profile.label;
         enrollmentRemaining.set(ENROLLMENT_SAMPLES);
         for (ImageView image : sampleFaces) image.setImageDrawable(null);
         similarityMatrix.setMatrix(null);
         embeddingScatter.setProjection(null, 0);
-        if (crossModelComparisonView != null) crossModelComparisonView.clear();
-        txtEnrollmentArchive.setText("正在建立 " + name + " 的 R4 质量档案。\n5 landmarks ≠ 5 samples ≠ 18 blocks ≠ 512 dims。\n先过像素硬门，再筛掉近重复帧；5 张样本同时追求稳定性与覆盖性。\n本轮档位：" + enrollmentProfileAtStart);
+        if (modelComparisonView != null) modelComparisonView.setRows(null);
+        if (deltaXsS != null) deltaXsS.setDelta("ΔM_XS,S", null);
+        if (deltaMS != null) deltaMS.setDelta("ΔM_M,S", null);
+        if (enrollmentModelMicroscope != null) enrollmentModelMicroscope.clearStats(ModelTopology.forVariant(inspectVariant));
+        txtEnrollmentArchive.setText("正在建立 " + name + " 的 R4 质量档案。\n先过像素硬门，再筛掉近重复帧；5 张样本同时追求稳定性与覆盖性。\n本轮档位：" + enrollmentProfileAtStart);
         txtEnrollmentFormula.setText("等待合格且有差异的样本……");
         clearFusion();
         txtResult.setText("R4 录入 · 等待第 1 张合格差异帧");
@@ -704,10 +641,11 @@ public class MainActivity extends AppCompatActivity {
                 txtPerf.setText(thermalLine(thermal));
                 if (currentPage == Page.ENROLLMENT) {
                     txtEnrollmentLiveQuality.setText("实时质量：未检测到人脸");
+                    if (txtEnrollmentGeometry != null) txtEnrollmentGeometry.setText("5点几何显微镜：未检测到人脸");
                 } else {
                     txtRecognitionQuality.setText("Probe 质量：未检测到人脸");
+                    if (txtGeometryMicroscope != null) txtGeometryMicroscope.setText("5点几何显微镜：未检测到人脸");
                     faceOverlay.clear();
-                    if (alignmentGeometryView != null) alignmentGeometryView.clear();
                     txtPipeline.setText("frame → degrade → detect " + detectMs + "ms → 无人脸，链路在检测阶段停止");
                 }
             });
@@ -724,20 +662,19 @@ public class MainActivity extends AppCompatActivity {
 
         try {
             long alignStart = SystemClock.elapsedRealtimeNanos();
-            FaceAligner.AlignmentResult alignment = FaceAligner.alignWithDiagnostics(detectorBitmap, face);
+            FaceAligner.Result alignment = FaceAligner.alignWithGeometry(detectorBitmap, face);
             Bitmap aligned = alignment.aligned;
-            FaceAlignmentDiagnostics geometry = alignment.diagnostics;
+            AlignmentGeometry geometry = alignment.geometry;
             long alignMs = elapsedMs(alignStart);
             FaceQuality.Snapshot quality = FaceQuality.evaluate(aligned, face, detectorBitmap.getWidth(), detectorBitmap.getHeight());
-            runOnUiThread(() -> {
-                if (alignmentGeometryView != null) alignmentGeometryView.setData(geometry);
-            });
 
             if (currentPage == Page.ENROLLMENT) {
-                runOnUiThread(() -> txtEnrollmentLiveQuality.setText(
-                        "实时质量 · " + quality.compactLine() + "\n入库硬门：" + quality.enrollmentGateReason()));
+                runOnUiThread(() -> {
+                    txtEnrollmentLiveQuality.setText("实时质量 · " + quality.compactLine() + "\n入库硬门：" + quality.enrollmentGateReason());
+                    renderGeometryMicroscope(geometry, true);
+                });
                 if (enrollmentRemaining.get() > 0 && enrollmentName != null) {
-                    handleEnrollment(aligned, quality, degraded, detectorBitmap, sourceW, sourceH,
+                    handleEnrollment(aligned, quality, geometry, degraded, detectorBitmap, sourceW, sourceH,
                             active, faceW, faceH, detectMs, alignMs, thermal);
                 } else {
                     runOnUiThread(() -> {
@@ -752,8 +689,9 @@ public class MainActivity extends AppCompatActivity {
                     imgAlignedProbe.setImageBitmap(aligned);
                     faceOverlay.setFace(face, detectorBitmap.getWidth(), detectorBitmap.getHeight());
                     txtRecognitionQuality.setText(quality.compactLine() + "\nProbe硬门：" + quality.probeGateReason());
+                    renderGeometryMicroscope(geometry, false);
                 });
-                handleRecognition(aligned, trackingId, quality, degraded, detectorBitmap,
+                handleRecognition(aligned, trackingId, quality, geometry, degraded, detectorBitmap,
                         sourceW, sourceH, active, faceW, faceH, detectMs, alignMs, thermal);
             }
         } catch (Exception e) {
@@ -761,7 +699,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void handleEnrollment(Bitmap aligned, FaceQuality.Snapshot quality,
+    private void handleEnrollment(Bitmap aligned, FaceQuality.Snapshot quality, AlignmentGeometry geometry,
                                   Bitmap degraded, Bitmap detectorBitmap, int sourceW, int sourceH,
                                   DegradationProfile active, int faceW, int faceH,
                                   long detectMs, long alignMs, ThermalProbe.Snapshot thermal) throws Exception {
@@ -775,8 +713,9 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        EnumMap<ModelVariant, RecognizerBank.TimedEmbedding> all = recognizerBank.embedAll(aligned);
-        RecognizerBank.TimedEmbedding sEmbedding = all.get(ModelVariant.S);
+        EnumMap<ModelVariant, RecognizerBank.TimedDiagnostic> all = new EnumMap<>(ModelVariant.class);
+        for (ModelVariant variant : ModelVariant.values()) all.put(variant, recognizerBank.diagnose(variant, aligned));
+        RecognizerBank.TimedDiagnostic sEmbedding = all.get(ModelVariant.S);
         if (sEmbedding == null || !enrollmentSession.isNovelCandidate(ModelVariant.S, sEmbedding.embedding, quality)) {
             runOnUiThread(() -> {
                 txtResult.setText("本帧未计入 · 与已采样帧过于重复\n请轻微左右转头/抬低头，让模板获得覆盖性");
@@ -787,14 +726,16 @@ public class MainActivity extends AppCompatActivity {
 
         StringBuilder timings = new StringBuilder();
         for (ModelVariant variant : ModelVariant.values()) {
-            RecognizerBank.TimedEmbedding te = all.get(variant);
+            RecognizerBank.TimedDiagnostic te = all.get(variant);
             enrollmentSession.add(variant, te.embedding, quality);
+            latestDeepStats.put(variant, te.stats);
             long total = detectMs + alignMs + te.inferMs;
             performance.get(variant).add(detectMs, alignMs, te.inferMs, 0L, total);
             if (timings.length() > 0) timings.append(" | ");
             timings.append(variant.storageKey).append(' ').append(te.inferMs).append("ms");
         }
 
+        enrollmentGeometries.add(geometry);
         int acceptedCount = enrollmentSession.size(ModelVariant.S);
         int left = Math.max(0, ENROLLMENT_SAMPLES - acceptedCount);
         enrollmentRemaining.set(left);
@@ -806,7 +747,8 @@ public class MainActivity extends AppCompatActivity {
                     ? ("已收合格差异帧 " + acceptedCount + "/5 · 还需 " + left + " 帧")
                     : "5 张合格差异帧完成 · 正在构建三模型模板");
             txtMetrics.setText(metricLine(sourceW, sourceH, degraded, detectorBitmap, active, faceW, faceH, detectMs));
-            txtPerf.setText("本帧 detect " + detectMs + " / align " + alignMs + "ms | " + timings + "\n" + thermalLine(thermal));
+            txtPerf.setText("本帧 detect " + detectMs + " / align " + alignMs + "ms | diag " + timings + "\n" + thermalLine(thermal));
+            renderDeepModelStats(inspectVariant, latestDeepStats.get(inspectVariant), true);
             updateActionState();
         });
         if (left == 0) finalizeEnrollment(name);
@@ -820,25 +762,26 @@ public class MainActivity extends AppCompatActivity {
         EnrollmentSession.Summary qualitySource = enrollmentSession.summary(ModelVariant.S);
         for (int i = 0; i < qualitySource.qualities.size(); i++) {
             FaceQuality.Snapshot q = qualitySource.qualities.get(i);
+            AlignmentGeometry g = i < enrollmentGeometries.size() ? enrollmentGeometries.get(i) : null;
             archive.append(String.format(Locale.US,
-                    "S%d  Q %.2f | 清晰 %.2f 光照 %.2f 对比 %.2f 姿态 %.2f 点 %.2f 尺寸 %.2f | Y/P/R %.1f/%.1f/%.1f° | Hard %s\n",
+                    "S%d  Q %.2f | 清晰 %.2f 光照 %.2f 对比 %.2f 姿态 %.2f 点 %.2f 尺寸 %.2f | Y/P/R %.1f/%.1f/%.1f° | Align %s | Hard %s\n",
                     i+1, q.composite, q.sharpness, q.brightness, q.contrast, q.pose, q.landmarks, q.size,
-                    q.yaw, q.pitch, q.roll, q.enrollmentGateReason()));
+                    q.yaw, q.pitch, q.roll, geometryArchive(g), q.enrollmentGateReason()));
         }
         archive.append("\n模型模板质量：稳定性 ≠ 覆盖性\n");
-        EnumMap<ModelVariant, EnrollmentSession.Summary> r4Summaries = new EnumMap<>(ModelVariant.class);
         for (ModelVariant variant : ModelVariant.values()) {
             EnrollmentSession.Summary summary = enrollmentSession.summary(variant);
-            r4Summaries.put(variant, summary);
             passAll &= summary.passesEnrollment();
             archive.append(String.format(Locale.US,
-                    "%s  Qavg %.3f · Sstable %.4f · D %.4f · Cover %.3f (Emb %.3f / Pose %.3f) · %s\n",
+                    "%s  Qavg %.3f · Sstable %.4f · D %.4f · Cover %.3f (Emb %.3f / Pose %.3f) · pair[min %.3f / mean %.3f] · outlier %s · %s\n",
                     variant.storageKey, summary.averageQuality, summary.stability, summary.dispersion,
                     summary.coverage, summary.embeddingCoverage, summary.poseCoverage,
+                    summary.minPairCosine, summary.meanPairCosine,
+                    summary.outlierIndex < 0 ? "N/A" : "S" + (summary.outlierIndex + 1),
                     summary.passesEnrollment() ? "PASS" : "FAIL"));
         }
         archive.append(passAll
-                ? "\n结论：PASS · 三模型质量加权模板与 R3.1 参考样本已入库"
+                ? "\n结论：PASS · 三模型质量加权模板与 R4 显微镜参考样本已入库"
                 : "\n结论：FAIL · 档案保留但不覆盖已有模板；稳定性或覆盖性不足");
 
         if (passAll) {
@@ -849,7 +792,6 @@ public class MainActivity extends AppCompatActivity {
                         new EnrollmentReferenceCodec.Record(enrollmentSession.embeddings(variant), summary.sampleToCentroid));
             }
         }
-        CrossModelEnrollmentComparison r4Comparison = CrossModelEnrollmentComparison.from(r4Summaries);
         archiveStore.save(name, archive.toString());
         completedEnrollmentSession = enrollmentSession;
         enrollmentName = null;
@@ -857,22 +799,20 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(() -> {
             txtEnrollmentArchive.setText(archive.toString());
             txtResult.setText(finalPassAll ? "R4 录入完成 · " + name + " · 模板已入库" : "录入未达门槛 · 模板未覆盖");
-            if (crossModelComparisonView != null) crossModelComparisonView.setData(r4Comparison);
             renderEnrollmentMicroscope(inspectVariant);
+            renderEnrollmentComparison();
             refreshCalibration(displayVariantForMode());
             updateActionState();
         });
     }
 
     private void renderEnrollmentMicroscope(ModelVariant variant) {
-        if (enrollmentArchitectureView != null && variant != null) {
-            enrollmentArchitectureView.setVariant(ModelArchitectureSpec.forVariant(variant));
-        }
         EnrollmentSession session = completedEnrollmentSession;
         if (session == null || session.size(variant) == 0) return;
         EnrollmentSession.Summary s = session.summary(variant);
         similarityMatrix.setMatrix(s.similarityMatrix);
         embeddingScatter.setProjection(s.projection, s.sampleCount);
+        renderDeepModelStats(variant, latestDeepStats.get(variant), true);
         StringBuilder cosines = new StringBuilder();
         for (int i=0;i<s.sampleToCentroid.length;i++) {
             if (i>0) cosines.append(", ");
@@ -880,7 +820,6 @@ public class MainActivity extends AppCompatActivity {
         }
         txtEnrollmentFormula.setText(String.format(Locale.US,
                 "公式链 · %s\n" +
-                "5 samples → 5×5 relation matrix；matrix 阶数跟样本数走，不是模型深度。\n" +
                 "HardGate_i = Qsharp≥.28 ∧ Qlight≥.28 ∧ Qcontrast≥.25 ∧ Qpose≥.55 ∧ Qlandmark≥.80 ∧ Qsize≥.45\n" +
                 "Qi=.25Qsharp+.15Qlight+.10Qcontrast+.20Qpose+.15Qlandmark+.15Qsize\n" +
                 "Qavg=%.3f · αi=max(Qi,.05)\n" +
@@ -888,14 +827,57 @@ public class MainActivity extends AppCompatActivity {
                 "cos(fi,c): %s\n" +
                 "Sstable=mean(cos(fi,c))=%.4f · D=%.4f\n" +
                 "Cemb=%.3f · Cpose=%.3f · Coverage=sqrt(Cemb×Cpose)=%.3f\n" +
+                "N×N矩阵: Mij=cos(fi,fj) · minPair %.3f · meanPair %.3f · outlier %s(均值 %.3f)\n" +
+                "PCA 坐标不可跨模型直接比较；最终身份判定仍使用512D cosine\n" +
                 "Pass=(N=%d≥5) ∧ (Qavg %.3f≥.55) ∧ (Sstable %.4f≥.70) ∧ (Coverage %.3f≥%.2f) ∧ HardGate ⇒ %s",
                 variant.storageKey, s.averageQuality, s.centroid.length, cosines,
                 s.stability, s.dispersion, s.embeddingCoverage, s.poseCoverage, s.coverage,
+                s.minPairCosine, s.meanPairCosine, s.outlierIndex < 0 ? "N/A" : "S" + (s.outlierIndex + 1), s.outlierMeanCosine,
                 s.sampleCount, s.averageQuality, s.stability, s.coverage, EnrollmentSession.MIN_COVERAGE,
                 s.passesEnrollment() ? "PASS" : "FAIL"));
     }
 
-    private void handleRecognition(Bitmap aligned, int trackingId, FaceQuality.Snapshot quality,
+    private void renderEnrollmentComparison() {
+        EnrollmentSession session = completedEnrollmentSession;
+        if (session == null) return;
+        EnumMap<ModelVariant, EnrollmentSession.Summary> summaries = new EnumMap<>(ModelVariant.class);
+        for (ModelVariant variant : ModelVariant.values()) summaries.put(variant, session.summary(variant));
+        ModelComparisonStats comparison = ModelComparisonStats.from(summaries);
+        if (modelComparisonView != null) modelComparisonView.setRows(comparison.rows);
+        if (deltaXsS != null) deltaXsS.setDelta("ΔM_XS,S", comparison.deltaXsMinusS);
+        if (deltaMS != null) deltaMS.setDelta("ΔM_M,S", comparison.deltaMMinusS);
+    }
+
+    private void renderDeepModelStats(ModelVariant variant, DeepModelStats stats, boolean enrollment) {
+        ModelTopology topology = ModelTopology.forVariant(variant == null ? ModelVariant.S : variant);
+        BlockMicroscopeView view = enrollment ? enrollmentModelMicroscope : recognitionModelMicroscope;
+        if (view != null) view.setStats(topology, stats);
+    }
+
+    private void renderGeometryMicroscope(AlignmentGeometry geometry, boolean enrollment) {
+        TextView target = enrollment ? txtEnrollmentGeometry : txtGeometryMicroscope;
+        if (target == null) return;
+        if (geometry == null) {
+            target.setText("5点几何显微镜 · 等待人脸");
+            return;
+        }
+        if (geometry.usedFallback) {
+            target.setText("5点几何显微镜（模型无关）\nLandmark " + geometry.landmarkCount + "/5 · 5pt unavailable → fallback crop\n5点 → sR+t → 112×112 → FaceLiVTv2：本帧无有效5点残差");
+            return;
+        }
+        target.setText(String.format(Locale.US,
+                "5点几何显微镜（模型无关） · LE/RE/N/ML/MR = 5/5\n眼间距 %.1fpx · Roll %.2f° · scale %.4f · translation %.1fpx\nE_align=mean||p'i-pHat_i||=%.2fpx · Emax=%.2fpx\n5点 → sR+t → 112×112 → FaceLiVTv2 → 512D",
+                geometry.eyeDistancePx, geometry.rollDeg, geometry.scale, geometry.translationPx,
+                geometry.meanResidualPx, geometry.maxResidualPx));
+    }
+
+    private static String geometryArchive(AlignmentGeometry g) {
+        if (g == null) return "N/A";
+        if (g.usedFallback) return g.landmarkCount + "/5 fallback";
+        return String.format(Locale.US, "5/5 residual %.2f/%.2fpx", g.meanResidualPx, g.maxResidualPx);
+    }
+
+    private void handleRecognition(Bitmap aligned, int trackingId, FaceQuality.Snapshot quality, AlignmentGeometry geometry,
                                    Bitmap degraded, Bitmap detectorBitmap, int sourceW, int sourceH,
                                    DegradationProfile active, int faceW, int faceH,
                                    long detectMs, long alignMs, ThermalProbe.Snapshot thermal) throws Exception {
@@ -904,45 +886,34 @@ public class MainActivity extends AppCompatActivity {
             lastProbeTrackingId = trackingId;
         }
         MicroscopeSelectionState.Snapshot frameSelection = microscopeSelection.snapshot();
+        DeepModelStats frameDeepStats = maybeRunDeepDiagnostic(aligned, frameSelection);
         StringBuilder results = new StringBuilder();
         long timestamp = System.currentTimeMillis();
         ModelVariant displayVariant = frameSelection.focus;
         List<FaceStore.Match> displayTop = new ArrayList<>();
         RecognitionDecision displayDecision = null;
         float[] displayFusedEmbedding = null;
-        ModelDiagnostics displayDiagnostics = null;
         long displayInfer = 0L, displayMatch = 0L, displayTotal = 0L;
         int displayFusedFrames = 0;
 
         for (ModelVariant variant : frameSelection.mode.variants()) {
-            float[] frameEmbedding;
-            long inferMs;
-            ModelDiagnostics diagnostics = null;
-            if (variant == displayVariant) {
-                RecognizerBank.TimedDiagnostics td = recognizerBank.diagnose(variant, aligned);
-                frameEmbedding = td.embedding;
-                inferMs = td.inferMs;
-                diagnostics = td.diagnostics;
-            } else {
-                RecognizerBank.TimedEmbedding te = recognizerBank.embed(variant, aligned);
-                frameEmbedding = te.embedding;
-                inferMs = te.inferMs;
-            }
-            float[] fusedEmbedding = fusion.get(variant).push(trackingId, frameEmbedding);
+            RecognizerBank.TimedEmbedding te = recognizerBank.embed(variant, aligned);
+            float[] fusedEmbedding = fusion.get(variant).push(trackingId, te.embedding);
             int fusedFrames = fusion.get(variant).size();
             long matchStart = SystemClock.elapsedRealtimeNanos();
             List<FaceStore.Match> top = faceStore.topMatches(variant, fusedEmbedding, 3);
             long matchMs = elapsedMs(matchStart);
             RecognitionDecision decision = RecognitionDecision.from(top, threshold, quality);
             float similarity = Float.isFinite(decision.top1Score) ? decision.top1Score : 0f;
-            long totalMs = detectMs + alignMs + inferMs + matchMs;
-            performance.get(variant).add(detectMs, alignMs, inferMs, matchMs, totalMs);
+            long totalMs = detectMs + alignMs + te.inferMs + matchMs;
+            performance.get(variant).add(detectMs, alignMs, te.inferMs, matchMs, totalMs);
             sessionLogger.addMicroscope(timestamp, active.label, variant,
                     sourceW, sourceH, degraded.getWidth(), degraded.getHeight(),
                     detectorBitmap.getWidth(), detectorBitmap.getHeight(), faceW, faceH,
-                    quality, decision.top1Name, decision.top2Name,
+                    quality, geometry, variant == displayVariant ? frameDeepStats : null,
+                    decision.top1Name, decision.top2Name,
                     similarity, decision.margin, threshold, decision.accepted, fusedFrames,
-                    detectMs, alignMs, inferMs, matchMs, totalMs, thermal);
+                    detectMs, alignMs, te.inferMs, matchMs, totalMs, thermal);
 
             if (results.length() > 0) results.append('\n');
             results.append(variant.storageKey).append("  ");
@@ -959,8 +930,7 @@ public class MainActivity extends AppCompatActivity {
                 displayTop = top;
                 displayDecision = decision;
                 displayFusedEmbedding = fusedEmbedding.clone();
-                displayDiagnostics = diagnostics;
-                displayInfer = inferMs;
+                displayInfer = te.inferMs;
                 displayMatch = matchMs;
                 displayTotal = totalMs;
                 displayFusedFrames = fusedFrames;
@@ -970,11 +940,11 @@ public class MainActivity extends AppCompatActivity {
         List<FaceStore.Match> finalTop = displayTop;
         RecognitionDecision finalDecision = displayDecision;
         float[] finalFusedEmbedding = displayFusedEmbedding;
-        ModelDiagnostics finalDiagnostics = displayDiagnostics;
         long finalInfer = displayInfer;
         long finalMatch = displayMatch;
         long finalTotal = displayTotal;
         int finalFusedFrames = displayFusedFrames;
+        DeepModelStats finalDeepStats = frameDeepStats;
         runOnUiThread(() -> {
             if (!microscopeSelection.isCurrent(frameSelection)) return;
             lastDisplayTop = finalTop;
@@ -982,12 +952,6 @@ public class MainActivity extends AppCompatActivity {
             txtMetrics.setText(metricLine(sourceW, sourceH, degraded, detectorBitmap, active, faceW, faceH, detectMs)
                     + " | Tid=" + String.format(Locale.US,"%.3f",threshold) + " | 库=" + faceStore.identityCount() + " | CSV=" + sessionLogger.size());
             PerformanceWindow window = performance.get(displayVariant);
-            if (recognitionArchitectureView != null) {
-                recognitionArchitectureView.setVariant(ModelArchitectureSpec.forVariant(displayVariant));
-            }
-            if (blockDiagnosticsView != null) {
-                blockDiagnosticsView.setData(ModelArchitectureSpec.forVariant(displayVariant), finalDiagnostics);
-            }
             txtPerf.setText(String.format(Locale.US,
                     "本帧 %s  detect %d / align %d / infer %d / match %d / total %d ms\n" +
                     "30帧均值  detect %.1f / align %.1f / infer %.1f / match %.1f / total %.1f ms\n%s",
@@ -996,6 +960,7 @@ public class MainActivity extends AppCompatActivity {
                     thermalLine(thermal)));
             renderRecognitionMicroscope(displayVariant, finalTop, quality, finalFusedFrames,
                     detectMs, alignMs, finalInfer, finalMatch, finalDecision, finalFusedEmbedding);
+            renderDeepModelStats(displayVariant, finalDeepStats, false);
             updateActionState();
         });
     }
@@ -1016,7 +981,7 @@ public class MainActivity extends AppCompatActivity {
         long total = detectMs + alignMs + inferMs + matchMs;
         boolean accepted = decision != null && decision.accepted;
         txtPipeline.setText(String.format(Locale.US,
-                "frame → degrade(%s) → detect %dms → 5pt align %dms → ProbeHardGate %s → FaceLiVT %s: 18 blocks [3/3/9/3] → 1284D → 512D %dms → fusion %d/5 → Top-K %dms → %s\n本帧链路=%dms",
+                "frame → degrade(%s) → detect %dms → 5pt align %dms → ProbeHardGate %s → embed %s %dms → fusion %d/5 → Top-K %dms → %s\n本帧链路=%dms",
                 profile.label, detectMs, alignMs, quality.passesProbeGate() ? "PASS" : "FAIL",
                 variant == null ? "?" : variant.storageKey, inferMs, fusedFrames, matchMs,
                 accepted ? "ACCEPT" : "REJECT", total));
@@ -1044,6 +1009,26 @@ public class MainActivity extends AppCompatActivity {
                 " ⇒ " + (accepted ? "ACCEPT" : "REJECT"));
 
         renderProbeProjection(variant, decision, fusedEmbedding);
+    }
+
+    private DeepModelStats maybeRunDeepDiagnostic(Bitmap aligned, MicroscopeSelectionState.Snapshot diagnosticSelection) {
+        if (aligned == null || diagnosticSelection == null) return null;
+        ModelVariant focus = diagnosticSelection.focus;
+        DeepModelStats cached = latestDeepStats.get(focus);
+        long now = SystemClock.elapsedRealtime();
+        if (cached != null && now - lastDeepDiagnosticMs < 1000L) return cached;
+        lastDeepDiagnosticMs = now;
+        try {
+            RecognizerBank.TimedDiagnostic diagnostic = recognizerBank.diagnose(focus, aligned);
+            latestDeepStats.put(focus, diagnostic.stats);
+            runOnUiThread(() -> {
+                if (!microscopeSelection.isCurrent(diagnosticSelection)) return;
+                renderDeepModelStats(focus, diagnostic.stats, false);
+            });
+            return diagnostic.stats;
+        } catch (Exception e) {
+            return cached;
+        }
     }
 
     private void renderProbeProjection(ModelVariant variant, RecognitionDecision decision, float[] fusedEmbedding) {

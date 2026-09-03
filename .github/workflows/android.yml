@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [ main, feat/r2-big-validation, fix/r2-ui-safe-area, feat/r3-face-microscope, feat/r31-calibration-microscope, fix/r32-model-microscope-linkage, feat/r4-unified-microscope ]
+    branches: [ main, feat/r2-big-validation, fix/r2-ui-safe-area, feat/r3-face-microscope, feat/r31-calibration-microscope, fix/r32-model-microscope-linkage, feat/r4-deep-microscope ]
   workflow_dispatch:
 
 jobs:
@@ -28,29 +28,8 @@ jobs:
       - name: Verify R3.2 model microscope linkage
         run: python tools/verify_model_microscope_linkage.py
 
-      - name: Verify R4 unified microscope contract
-        run: python tools/verify_r4_unified_microscope.py
-
-      - name: Install model export toolchain
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.6.0 torchvision==0.21.0
-          python -m pip install timm==1.0.15 onnx==1.17.0 onnxruntime==1.20.1 huggingface_hub==0.35.3 numpy==1.26.4
-
-      - name: Fetch pinned FaceLiVT upstream
-        run: |
-          git clone https://github.com/novendrastywn/FaceLiVT.git upstream-facelivt
-          cd upstream-facelivt
-          git checkout d99d86607c7c05540c74e815e5a88847f7e667db
-
-      - name: Export FaceLiVTv2 XS S M and verify fidelity plus diagnostics
-        env:
-          HF_HUB_DISABLE_TELEMETRY: '1'
-        run: |
-          python tools/export_facelivtv2.py --variant xs --upstream upstream-facelivt --output app/src/main/assets/facelivtv2_xs.onnx
-          python tools/export_facelivtv2.py --variant s  --upstream upstream-facelivt --output app/src/main/assets/facelivtv2_s.onnx
-          python tools/export_facelivtv2.py --variant m  --upstream upstream-facelivt --output app/src/main/assets/facelivtv2_m.onnx
-          ls -lh app/src/main/assets/facelivtv2_*.onnx
+      - name: Verify R4 deep microscope contract
+        run: python tools/verify_r4_microscope.py
 
       - uses: actions/setup-java@v5
         with:
@@ -68,8 +47,35 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Unit tests and APK
-        run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+
+      - name: Install model export toolchain
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.6.0 torchvision==0.21.0
+          python -m pip install timm==1.0.15 onnx==1.17.0 onnxruntime==1.20.1 huggingface_hub==0.35.3 numpy==1.26.4
+
+      - name: Fetch pinned FaceLiVT upstream
+        run: |
+          git clone https://github.com/novendrastywn/FaceLiVT.git upstream-facelivt
+          cd upstream-facelivt
+          git checkout d99d86607c7c05540c74e815e5a88847f7e667db
+
+      - name: Export FaceLiVTv2 XS S M diagnostics and verify fidelity
+        env:
+          HF_HUB_DISABLE_TELEMETRY: '1'
+        run: |
+          python tools/export_facelivtv2.py --variant xs --upstream upstream-facelivt --output app/src/main/assets/facelivtv2_xs.onnx
+          python tools/verify_r4_diagnostic_onnx.py app/src/main/assets/facelivtv2_xs.onnx
+          python tools/export_facelivtv2.py --variant s  --upstream upstream-facelivt --output app/src/main/assets/facelivtv2_s.onnx
+          python tools/verify_r4_diagnostic_onnx.py app/src/main/assets/facelivtv2_s.onnx
+          python tools/export_facelivtv2.py --variant m  --upstream upstream-facelivt --output app/src/main/assets/facelivtv2_m.onnx
+          python tools/verify_r4_diagnostic_onnx.py app/src/main/assets/facelivtv2_m.onnx
+          ls -lh app/src/main/assets/facelivtv2_*.onnx
+
+      - name: Assemble APK
+        run: gradle :app:assembleDebug --stacktrace
 
       - name: Verify R4 APK contents and ABI
         run: |

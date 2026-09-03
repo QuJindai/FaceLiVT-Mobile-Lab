@@ -31,7 +31,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="FaceLiVT R3 · 人脸显微镜"
+                    android:text="FaceLiVT R4 · 深层人脸显微镜"
                     android:textColor="#FFFFFF"
                     android:textSize="19sp"
                     android:textStyle="bold" />
@@ -80,7 +80,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="5dp"
-                android:text="相机初始化中 · 录入和检测已拆分为独立工作流"
+                android:text="R4 · 几何 / 向量 / 18 Block 三层显微镜"
                 android:textColor="#B9D8D2"
                 android:textSize="11sp" />
         </LinearLayout>
@@ -227,6 +227,17 @@
                         android:textSize="12sp" />
 
                     <TextView
+                        android:id="@+id/txtEnrollmentGeometry"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/r3_panel"
+                        android:text="5点几何显微镜（模型无关）：等待 LE / RE / N / ML / MR"
+                        android:textColor="#D9FFF7"
+                        android:textIsSelectable="true"
+                        android:textSize="11sp" />
+
+                    <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
@@ -296,6 +307,21 @@
                         android:textIsSelectable="true"
                         android:textSize="11sp" />
 
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="9dp"
+                        android:text="模型结构显微镜 · 真实 18 Block 中间统计"
+                        android:textColor="#FFFFFF"
+                        android:textStyle="bold" />
+
+                    <com.qujindai.facelivtlab.BlockMicroscopeView
+                        android:id="@+id/enrollmentModelMicroscope"
+                        android:layout_width="match_parent"
+                        android:layout_height="270dp"
+                        android:layout_marginTop="4dp" />
+
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -310,11 +336,38 @@
                         android:layout_height="180dp"
                         android:layout_marginTop="4dp" />
 
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="5dp"
+                        android:text="5×5 来源于 5 张录入样本，不是模型结构（样本数变化时自动为 N×N）"
+                        android:textColor="#B8C9C7"
+                        android:textSize="10sp" />
+
+                    <com.qujindai.facelivtlab.ModelComparisonView
+                        android:id="@+id/modelComparisonView"
+                        android:layout_width="match_parent"
+                        android:layout_height="150dp"
+                        android:layout_marginTop="7dp" />
+
+                    <com.qujindai.facelivtlab.MatrixDeltaView
+                        android:id="@+id/deltaXsS"
+                        android:layout_width="match_parent"
+                        android:layout_height="190dp"
+                        android:layout_marginTop="6dp" />
+
+                    <com.qujindai.facelivtlab.MatrixDeltaView
+                        android:id="@+id/deltaMS"
+                        android:layout_width="match_parent"
+                        android:layout_height="190dp"
+                        android:layout_marginTop="6dp" />
+
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="9dp"
-                        android:text="512D → 2D embedding 投影"
+                        android:text="512D → 2D embedding 投影 · PCA 坐标不可跨模型直接比较 · PCA 坐标不可跨模型直接比较 · PCA 坐标不可跨模型直接比较 · PCA 坐标不可跨模型直接比较 · PCA 坐标不可跨模型直接比较 · PCA 坐标不可跨模型直接比较 · PCA 坐标不可跨模型直接比较"
                         android:textColor="#FFFFFF"
                         android:textStyle="bold" />
 
@@ -438,6 +491,17 @@
                     </LinearLayout>
 
                     <TextView
+                        android:id="@+id/txtGeometryMicroscope"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/r3_panel"
+                        android:text="5点几何显微镜（模型无关）：等待 LE / RE / N / ML / MR"
+                        android:textColor="#D9FFF7"
+                        android:textIsSelectable="true"
+                        android:textSize="11sp" />
+
+                    <TextView
                         android:id="@+id/txtPipeline"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -447,6 +511,21 @@
                         android:textColor="#D9FFF7"
                         android:textIsSelectable="true"
                         android:textSize="11sp" />
+
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="9dp"
+                        android:text="模型结构显微镜 · 当前焦点模型真实 18 Block"
+                        android:textColor="#FFFFFF"
+                        android:textStyle="bold" />
+
+                    <com.qujindai.facelivtlab.BlockMicroscopeView
+                        android:id="@+id/recognitionModelMicroscope"
+                        android:layout_width="match_parent"
+                        android:layout_height="270dp"
+                        android:layout_marginTop="4dp" />
 
                     <TextView
                         android:layout_width="match_parent"

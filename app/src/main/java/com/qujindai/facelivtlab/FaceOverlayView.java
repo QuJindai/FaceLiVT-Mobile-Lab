@@ -16,7 +16,7 @@ import com.google.mlkit.vision.face.FaceLandmark;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Draws the detector box and the five labelled landmarks over the exact detector input image. */
+/** Draws the detector box and explicitly named five alignment landmarks. */
 public final class FaceOverlayView extends View {
     private final Paint boxPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint pointPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -38,10 +38,10 @@ public final class FaceOverlayView extends View {
         boxPaint.setColor(Color.rgb(42,205,170));
         pointPaint.setStyle(Paint.Style.FILL);
         pointPaint.setColor(Color.rgb(255,190,70));
-        labelPaint.setColor(Color.rgb(255,220,135));
-        labelPaint.setTextSize(dp(9.5f));
+        labelPaint.setStyle(Paint.Style.FILL);
+        labelPaint.setColor(Color.WHITE);
+        labelPaint.setTextSize(dp(8.5f));
         labelPaint.setFakeBoldText(true);
-        labelPaint.setShadowLayer(dp(1.5f), 0, 0, Color.BLACK);
     }
 
     public void setFace(Face face, int sourceW, int sourceH) {
@@ -89,7 +89,7 @@ public final class FaceOverlayView extends View {
             float x = dx + p.x * scale;
             float y = dy + p.y * scale;
             canvas.drawCircle(x, y, dp(3.5f), pointPaint);
-            canvas.drawText(labels.get(i), x + dp(5), y - dp(4), labelPaint);
+            canvas.drawText(labels.get(i), x + dp(5f), y - dp(5f), labelPaint);
         }
     }
 

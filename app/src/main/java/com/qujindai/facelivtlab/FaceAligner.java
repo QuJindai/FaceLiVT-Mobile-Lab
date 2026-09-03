@@ -20,30 +20,29 @@ public final class FaceAligner {
             70.7299f, 92.2041f
     };
 
-    public static final class AlignmentResult {
+    public static final class Result {
         public final Bitmap aligned;
-        public final FaceAlignmentDiagnostics diagnostics;
+        public final AlignmentGeometry geometry;
 
-        AlignmentResult(Bitmap aligned, FaceAlignmentDiagnostics diagnostics) {
+        Result(Bitmap aligned, AlignmentGeometry geometry) {
             this.aligned = aligned;
-            this.diagnostics = diagnostics;
+            this.geometry = geometry;
         }
     }
 
     private FaceAligner() {}
 
-    /** Compatibility API retained for R3 callers. */
     public static Bitmap align(Bitmap source, Face face) {
-        return alignWithDiagnostics(source, face).aligned;
+        return alignWithGeometry(source, face).aligned;
     }
 
-    public static AlignmentResult alignWithDiagnostics(Bitmap source, Face face) {
+    public static Result alignWithGeometry(Bitmap source, Face face) {
         FaceLandmark le = face.getLandmark(FaceLandmark.LEFT_EYE);
         FaceLandmark re = face.getLandmark(FaceLandmark.RIGHT_EYE);
         FaceLandmark nose = face.getLandmark(FaceLandmark.NOSE_BASE);
         FaceLandmark ml = face.getLandmark(FaceLandmark.MOUTH_LEFT);
         FaceLandmark mr = face.getLandmark(FaceLandmark.MOUTH_RIGHT);
-        int landmarkCount = countPresent(le, re, nose, ml, mr);
+        int landmarkCount = count(le, re, nose, ml, mr);
 
         if (landmarkCount == 5) {
             float[] src = {
@@ -55,6 +54,7 @@ public final class FaceAligner {
             };
             try {
                 float[] affine = SimilarityTransform.fit(src, ARC_FACE_5);
+                AlignmentGeometry geometry = AlignmentGeometry.fromTransform(src, ARC_FACE_5, affine);
                 Matrix matrix = new Matrix();
                 matrix.setValues(new float[]{
                         affine[0], affine[1], affine[2],
@@ -65,21 +65,18 @@ public final class FaceAligner {
                 Canvas canvas = new Canvas(out);
                 Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
                 canvas.drawBitmap(source, matrix, paint);
-                FaceAlignmentDiagnostics diagnostics = FaceAlignmentDiagnostics.fromSimilarity(
-                        src, ARC_FACE_5, affine, landmarkCount, false);
-                return new AlignmentResult(out, diagnostics);
+                return new Result(out, geometry);
             } catch (IllegalArgumentException ignored) {
-                // Fall through to robust crop when landmarks are degenerate.
+                // Degenerate landmark geometry is observable as fallback instead of a fake residual.
             }
         }
-        return new AlignmentResult(cropFallback(source, face.getBoundingBox()),
-                FaceAlignmentDiagnostics.fallback(landmarkCount));
+        return new Result(cropFallback(source, face.getBoundingBox()), AlignmentGeometry.fallback(landmarkCount));
     }
 
-    private static int countPresent(FaceLandmark... landmarks) {
-        int count = 0;
-        for (FaceLandmark landmark : landmarks) if (landmark != null) count++;
-        return count;
+    private static int count(FaceLandmark... landmarks) {
+        int n = 0;
+        for (FaceLandmark landmark : landmarks) if (landmark != null) n++;
+        return n;
     }
 
     private static Bitmap cropFallback(Bitmap source, Rect box) {

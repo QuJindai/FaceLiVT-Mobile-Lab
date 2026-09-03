@@ -18,12 +18,6 @@ VARIANTS = {
     "s": ("facelivtv2-s.pt", "facelivtv2_s", "S"),
     "m": ("facelivtv2-m.pt", "facelivtv2_m", "M"),
 }
-EXPECTED_OUTPUTS = {
-    "embedding": (1, 512),
-    "block_stats": (18, 4),
-    "stage_stats": (4, 4),
-    "prehead": (1, 1284),
-}
 
 
 def load_module(upstream: Path):
@@ -32,47 +26,56 @@ def load_module(upstream: Path):
     spec = importlib.util.spec_from_file_location(module_name, path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
-    # timm.register_model() looks up the decorated function's module in sys.modules.
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
 
 
-def feature_stats(x: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
-    abs_x = torch.abs(x)
-    mean_abs = torch.mean(abs_x)
-    rms = torch.sqrt(torch.mean(x * x) + 1.0e-12)
-    sparsity = torch.mean((abs_x < 0.05).to(dtype=x.dtype))
-    delta_ratio = torch.mean(torch.abs(x - reference)) / (torch.mean(torch.abs(reference)) + 1.0e-6)
-    return torch.stack((mean_abs, rms, sparsity, delta_ratio))
+def stats4(x: torch.Tensor) -> torch.Tensor:
+    mean_abs = x.abs().mean()
+    rms = torch.sqrt((x * x).mean() + 1e-12)
+    mean = x.mean()
+    std = torch.sqrt(((x - mean) * (x - mean)).mean() + 1e-12)
+    near_zero = (x.abs() < 1e-3).to(x.dtype).mean()
+    return torch.stack((mean_abs, rms, std, near_zero))
+
+
+def block_stats(before: torch.Tensor, after: torch.Tensor) -> torch.Tensor:
+    base = stats4(after)
+    diff = after - before
+    relative_delta = torch.sqrt((diff * diff).sum() + 1e-12) / (
+        torch.sqrt((before * before).sum() + 1e-12) + 1e-6
+    )
+    return torch.cat((base, relative_delta.reshape(1)))
 
 
 class DiagnosticWrapper(torch.nn.Module):
-    """Same deployed FaceLiVT graph, with compact observability outputs added."""
-    def __init__(self, net):
+    """Runs the real deployed backbone while exposing compact activation summaries."""
+
+    def __init__(self, model):
         super().__init__()
-        self.net = net
+        self.model = model
 
     def forward(self, x):
         block_rows = []
         stage_rows = []
-        for stage_idx in range(self.net.num_stage):
-            x = self.net.patch_embedds[stage_idx](x)
-            stage_input = x
-            for block in self.net.stages[stage_idx].blocks:
-                block_input = x
+        for stage_idx in range(self.model.num_stage):
+            x = self.model.patch_embedds[stage_idx](x)
+            stage = self.model.stages[stage_idx]
+            for block in stage.blocks:
+                before = x
                 x = block(x)
-                block_rows.append(feature_stats(x, block_input))
-            stage_rows.append(feature_stats(x, stage_input))
-        prehead = self.net.pre_head(x).flatten(1)
-        embedding = self.net.head(prehead)
-        return embedding, torch.stack(block_rows), torch.stack(stage_rows), prehead
+                block_rows.append(block_stats(before, x))
+            stage_rows.append(stats4(x))
+
+        prehead = self.model.pre_head(x).flatten(1)
+        prehead_stats = stats4(prehead)
+        embedding = self.model.head(prehead)
+        return embedding, torch.stack(block_rows), torch.stack(stage_rows), prehead_stats
 
 
-def cosine(a, b):
-    a = np.asarray(a, dtype=np.float32).reshape(-1)
-    b = np.asarray(b, dtype=np.float32).reshape(-1)
-    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-12))
+def cosine(a: np.ndarray, b: np.ndarray) -> float:
+    return float(np.dot(a.ravel(), b.ravel()) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-12))
 
 
 def main():
@@ -111,26 +114,24 @@ def main():
     if reparam_cos < 0.99999:
         raise RuntimeError(f"FaceLiVTv2-{label} reparameterization fidelity failed: cosine={reparam_cos}")
 
-    diagnostic = DiagnosticWrapper(deployed)
-    diagnostic.eval()
+    diagnostic = DiagnosticWrapper(deployed).eval()
     with torch.no_grad():
-        diag_embedding, pt_blocks, pt_stages, pt_prehead = diagnostic(dummy)
-    wrapper_cos = cosine(dep, diag_embedding.cpu().numpy())
-    if wrapper_cos < 0.99999:
-        raise RuntimeError(f"FaceLiVTv2-{label} diagnostic wrapper changed embedding: cosine={wrapper_cos}")
-    if tuple(pt_blocks.shape) != EXPECTED_OUTPUTS["block_stats"]:
-        raise RuntimeError(f"unexpected PyTorch block_stats shape: {tuple(pt_blocks.shape)}")
-    if tuple(pt_stages.shape) != EXPECTED_OUTPUTS["stage_stats"]:
-        raise RuntimeError(f"unexpected PyTorch stage_stats shape: {tuple(pt_stages.shape)}")
-    if tuple(pt_prehead.shape) != EXPECTED_OUTPUTS["prehead"]:
-        raise RuntimeError(f"unexpected PyTorch prehead shape: {tuple(pt_prehead.shape)}")
+        diag_ref = diagnostic(dummy)
+    diag_embedding = diag_ref[0].cpu().numpy()
+    if cosine(dep, diag_embedding) < 0.99999:
+        raise RuntimeError(f"FaceLiVTv2-{label} diagnostic wrapper changed embedding")
+    if tuple(diag_ref[1].shape) != (18, 5) or tuple(diag_ref[2].shape) != (4, 4) or tuple(diag_ref[3].shape) != (4,):
+        raise RuntimeError(
+            f"FaceLiVTv2-{label} bad diagnostic shapes: "
+            f"blocks={tuple(diag_ref[1].shape)} stages={tuple(diag_ref[2].shape)} prehead={tuple(diag_ref[3].shape)}"
+        )
 
     torch.onnx.export(
         diagnostic,
         dummy,
         str(output),
         input_names=["input"],
-        output_names=["embedding", "block_stats", "stage_stats", "prehead"],
+        output_names=["embedding", "block_stats", "stage_stats", "prehead_stats"],
         opset_version=18,
         do_constant_folding=True,
         dynamo=False,
@@ -139,31 +140,25 @@ def main():
     onnx.checker.check_model(onnx_model)
 
     session = ort.InferenceSession(str(output), providers=["CPUExecutionProvider"])
-    actual_names = [o.name for o in session.get_outputs()]
-    if actual_names != list(EXPECTED_OUTPUTS):
-        raise RuntimeError(f"unexpected ONNX outputs: {actual_names}")
-    ort_values = session.run(actual_names, {"input": dummy.numpy()})
-    ort_by_name = dict(zip(actual_names, ort_values))
-    for name, expected_shape in EXPECTED_OUTPUTS.items():
-        shape = tuple(ort_by_name[name].shape)
-        if shape != expected_shape:
-            raise RuntimeError(f"FaceLiVTv2-{label} {name} shape {shape} != {expected_shape}")
-
-    ort_embedding = ort_by_name["embedding"]
+    ort_embedding, ort_blocks, ort_stages, ort_prehead = session.run(None, {"input": dummy.numpy()})
     ort_cos = cosine(dep, ort_embedding)
     max_abs = float(np.max(np.abs(dep - ort_embedding)))
-    if ort_cos < 0.99999:
-        raise RuntimeError(f"FaceLiVTv2-{label} ONNX fidelity failed: cosine={ort_cos}")
+    if ort_blocks.shape != (18, 5) or ort_stages.shape != (4, 4) or ort_prehead.shape != (4,):
+        raise RuntimeError(
+            f"FaceLiVTv2-{label} ONNX diagnostic shapes invalid: "
+            f"{ort_blocks.shape}, {ort_stages.shape}, {ort_prehead.shape}"
+        )
+    if not (np.isfinite(ort_blocks).all() and np.isfinite(ort_stages).all() and np.isfinite(ort_prehead).all()):
+        raise RuntimeError(f"FaceLiVTv2-{label} diagnostic output contains non-finite values")
 
     print(
-        f"FaceLiVTv2-{label} export OK: "
-        f"reparam_cos={reparam_cos:.8f}, wrapper_cos={wrapper_cos:.8f}, "
-        f"onnx_cos={ort_cos:.8f}, max_abs={max_abs:.8g}, "
-        f"outputs=embedding{ort_by_name['embedding'].shape},"
-        f"block_stats{ort_by_name['block_stats'].shape},"
-        f"stage_stats{ort_by_name['stage_stats'].shape},"
-        f"prehead{ort_by_name['prehead'].shape}, bytes={output.stat().st_size}"
+        f"FaceLiVTv2-{label} R4 export OK: "
+        f"reparam_cos={reparam_cos:.8f}, onnx_cos={ort_cos:.8f}, "
+        f"max_abs={max_abs:.8g}, blocks={ort_blocks.shape}, stages={ort_stages.shape}, "
+        f"prehead={ort_prehead.shape}, bytes={output.stat().st_size}"
     )
+    if ort_cos < 0.99999:
+        raise RuntimeError(f"FaceLiVTv2-{label} ONNX fidelity failed: cosine={ort_cos}")
 
 
 if __name__ == "__main__":
