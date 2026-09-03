@@ -904,14 +904,17 @@ public class MainActivity extends AppCompatActivity {
 
         int version = historyStore.nextVersion(name);
         boolean append = enrollmentIntent == EnrollmentIntent.APPEND;
-        int effectiveBefore = append ? appendOldEffectiveSamples.getOrDefault(ModelVariant.S,
-                Math.max(1, faceStore.sampleCount(name, ModelVariant.S))) : 0;
-        int effectiveAfter = append ? Math.min(Math.max(1, effectiveBefore) + 5, 20) : 5;
-        EnrollmentHistoryRecord history = EnrollmentHistoryRecord.fromSession(name, version,
-                System.currentTimeMillis(), enrollmentProfileAtStart, effectiveBefore, effectiveAfter,
-                enrollmentSession, enrollmentGeometries);
+        EnrollmentCommitPlan.Plan commitPlan;
+        EnrollmentHistoryRecord history;
         List<byte[]> thumbnailBytes;
         try {
+            // All XS/S/M fusion/template validation MUST finish before immutable Vn is published.
+            commitPlan = EnrollmentCommitPlan.build(enrollmentSession, append,
+                    appendOldCentroids, appendOldEffectiveSamples);
+            history = EnrollmentHistoryRecord.fromSession(name, version,
+                    System.currentTimeMillis(), enrollmentProfileAtStart,
+                    commitPlan.effectiveSamplesBefore, commitPlan.effectiveSamplesAfter,
+                    enrollmentSession, enrollmentGeometries);
             thumbnailBytes = encodeEnrollmentThumbnails();
             historyStore.saveVersion(history, thumbnailBytes);
         } catch (RuntimeException e) {
@@ -920,38 +923,45 @@ public class MainActivity extends AppCompatActivity {
             enrollmentIntent = EnrollmentIntent.NONE;
             runOnUiThread(() -> {
                 if (identityGuardPanel != null) identityGuardPanel.setVisibility(View.VISIBLE);
-                txtResult.setText("R5 历史五帧写入失败 · 活动模板未更新 · " + failedIntent + " · " + safeMessage(e));
-                resetIdentityGuardContext("历史写入失败，模板保持原状");
+                txtResult.setText("R5 提交前验证/历史写入失败 · 活动模板未更新 · " + failedIntent + " · " + safeMessage(e));
+                if (append && !existingIdentityContext.isEmpty()) {
+                    enterExistingIdentity(existingIdentityContext, false);
+                } else {
+                    resetIdentityGuardContext("R5 提交失败，模板保持原状");
+                }
                 updateActionState();
             });
             return;
         }
 
         archive.append("\n学习版本：V").append(version).append(" · 五张 112×112 对齐脸已写入 app 私有历史\n");
-        for (ModelVariant variant : ModelVariant.values()) {
-            EnrollmentSession.Summary summary = enrollmentSession.summary(variant);
-            float[] activeCentroid;
-            int activeEffective;
-            if (append) {
-                float[] oldCentroid = appendOldCentroids.get(variant);
-                int oldEffective = appendOldEffectiveSamples.getOrDefault(variant, Math.max(1, faceStore.sampleCount(name, variant)));
-                if (oldCentroid == null) {
-                    txtResult.setText("追加学习失败：旧模板缺失 " + variant.storageKey);
-                    return;
+        try {
+            for (ModelVariant variant : ModelVariant.values()) {
+                EnrollmentCommitPlan.ActiveTemplate active = commitPlan.templates.get(variant);
+                if (active == null) throw new IllegalStateException("missing preflight template " + variant.storageKey);
+                if (active.appended) {
+                    archive.append(String.format(Locale.US,
+                            "%s append: wOld=%d · wNew=%d · effective=%d · cos(cOld,cActiveNew)=%.4f\n",
+                            variant.storageKey, active.oldWeight, active.newWeight,
+                            active.effectiveSamples, active.driftCosine));
                 }
-                TemplateFusion.Result fused = TemplateFusion.fuse(oldCentroid, oldEffective, summary.centroid);
-                activeCentroid = fused.centroid;
-                activeEffective = fused.effectiveSamples;
-                archive.append(String.format(Locale.US,
-                        "%s append: wOld=%d · wNew=%d · effective=%d · cos(cOld,cActiveNew)=%.4f\n",
-                        variant.storageKey, fused.oldWeight, fused.newWeight, fused.effectiveSamples,
-                        VectorMath.cosine(oldCentroid, activeCentroid)));
-            } else {
-                activeCentroid = summary.centroid;
-                activeEffective = 5;
+                faceStore.replaceTemplate(name, variant, active.centroid, active.effectiveSamples);
+                saveActiveReference(name, variant, enrollmentSession.embeddings(variant), active.centroid, append);
             }
-            faceStore.replaceTemplate(name, variant, activeCentroid, activeEffective);
-            saveActiveReference(name, variant, enrollmentSession.embeddings(variant), activeCentroid, append);
+        } catch (RuntimeException e) {
+            // The immutable version was published only after all computational validation passed.
+            // If local persistence itself fails, remove the just-published version so history never claims success.
+            historyStore.deleteVersion(name, version);
+            enrollmentName = null;
+            EnrollmentIntent failedIntent = enrollmentIntent;
+            enrollmentIntent = EnrollmentIntent.NONE;
+            runOnUiThread(() -> {
+                if (identityGuardPanel != null) identityGuardPanel.setVisibility(View.VISIBLE);
+                txtResult.setText("R5 活动模板写入失败 · 已撤销 V" + version + " · " + failedIntent + " · " + safeMessage(e));
+                resetIdentityGuardContext("活动模板写入失败，已撤销历史版本");
+                updateActionState();
+            });
+            return;
         }
         archive.append(append
                 ? "\n结论：PASS · 新版本已保存，活动模板完成保守融合；旧版本保持不可变"
