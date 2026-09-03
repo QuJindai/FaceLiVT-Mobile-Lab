@@ -29,10 +29,22 @@ for filename in (
 layout = LAYOUT.read_text(encoding="utf-8")
 for fragment in (
     "FaceLiVT R5 · 身份防重学习显微镜",
+    "identityGuardPanel",
+    "txtHistoryStrip",
     "sampleFace1",
     "sampleFace5",
 ):
     require(fragment in layout, f"layout missing {fragment}")
+
+panel = (JAVA / "IdentityGuardPanel.java").read_text(encoding="utf-8")
+for fragment in (
+    "AttributeSet",
+    "IdentityGuardPanel(Context context, AttributeSet attrs)",
+    "保留现有",
+    "追加学习 ×5",
+    "删除并重新录入",
+):
+    require(fragment in panel, f"IdentityGuardPanel missing {fragment}")
 
 main = MAIN.read_text(encoding="utf-8")
 for fragment in (
@@ -47,8 +59,20 @@ for fragment in (
     "旧版本没有保存五帧图像；追加学习或删除重录后可建立完整学习档案。",
     "guardGeneration",
     "isCurrent(",
+    "tracked != null ? tracked : -1",
+    "identityGuard.reset();",
+    "historyStore.saveVersion(",
+    "TemplateFusion.fuse(",
+    "EnrollmentIntent.APPEND",
+    "EnrollmentIntent.REPLACE_AFTER_DELETE",
+    "Bitmap.CompressFormat.WEBP",
 ):
     require(fragment in main, f"MainActivity missing {fragment}")
+
+require("noTrackingSequence" not in main,
+        "no-tracking fallback must not synthesize a new identity every frame")
+require('的 R5 学习版本。\\n" +' in main,
+        "R5 enrollment status text must use escaped newlines, not literal Java source newlines")
 
 # A blocked duplicate must not have a bypass action.
 for forbidden in (
@@ -72,6 +96,7 @@ history = (JAVA / "EnrollmentHistoryStore.java").read_text(encoding="utf-8")
 for fragment in (
     "saveVersion(", "latest(", "versions(", "loadVersion(",
     "loadFiveFrames", "deleteIdentity(", "enrollment_history",
+    "s1.webp", "record.txt",
 ):
     require(fragment in history, f"EnrollmentHistoryStore missing {fragment}")
 
@@ -89,7 +114,8 @@ require("versionName '0.5.0'" in build, "versionName must be 0.5.0")
 
 workflow = WORKFLOW.read_text(encoding="utf-8")
 require("Verify R5 identity guard contract" in workflow, "workflow must run R5 contract")
+require("Verify R5 APK contents and ABI" in workflow, "workflow must verify R5 artifact")
 require("FaceLiVT-Mobile-Lab-R5-debug.apk" in workflow, "workflow must package R5 APK")
 require("FaceLiVT-Mobile-Lab-R5-debug-apk" in workflow, "workflow must upload R5 artifact")
 
-print("R5 IDENTITY GUARD CONTRACT PASS: duplicate hard-block, history replay, append/delete lifecycle and stale-result safety are wired")
+print("R5 IDENTITY GUARD CONTRACT PASS: duplicate hard-block, XML-safe panel, temporal fallback, history replay, append/delete lifecycle and stale-result safety are wired")
