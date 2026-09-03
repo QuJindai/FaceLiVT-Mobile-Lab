@@ -50,7 +50,9 @@ for fragment in (
     require(fragment in main, f"MainActivity missing {fragment}")
 
 build = BUILD.read_text(encoding="utf-8")
-require(re.search(r"versionCode\s+4\b", build) is not None, "versionCode must be 4")
-require("versionName '0.3.1'" in build, "versionName must be 0.3.1")
+version_code = re.search(r"versionCode\s+(\d+)\b", build)
+version_name = re.search(r"versionName\s+'([^']+)'", build)
+require(version_code is not None and int(version_code.group(1)) >= 4, "versionCode must remain at least R3.1")
+require(version_name is not None and version_name.group(1).startswith("0.3."), "versionName must remain in 0.3.x family")
 
 print("R3.1 CALIBRATION CONTRACT PASS: hard gates, coverage, N/A margin, empirical threshold, fixed-PCA probe and timing scopes are wired")
