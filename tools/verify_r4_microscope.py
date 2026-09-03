@@ -51,9 +51,12 @@ for fragment in (
     "ΔM_M,S",
     "microscopeSelection.isCurrent(diagnosticSelection)",
     "5点 → sR+t → 112×112 →",
-    "1284D→512D",
 ):
     require(fragment in main, f"MainActivity missing {fragment}")
+
+topology_ui = (JAVA / "ModelTopology.java").read_text(encoding="utf-8") + (JAVA / "BlockMicroscopeView.java").read_text(encoding="utf-8")
+for fragment in ("18 blocks", "[3,3,9,3]", "1284D→512D"):
+    require(fragment in topology_ui, f"model topology UI missing {fragment}")
 
 logger = LOGGER.read_text(encoding="utf-8")
 for fragment in (
