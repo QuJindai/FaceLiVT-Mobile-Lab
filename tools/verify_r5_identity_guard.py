@@ -22,6 +22,7 @@ for filename in (
     "EnrollmentHistoryCodec.java",
     "EnrollmentHistoryStore.java",
     "TemplateFusion.java",
+    "EnrollmentCommitPlan.java",
     "IdentityGuardPanel.java",
 ):
     require((JAVA / filename).exists(), f"missing {filename}")
@@ -52,7 +53,7 @@ for fragment in (
     "IdentityGuardPanel",
     "EnrollmentHistoryStore",
     "IdentityLifecycle",
-    "TemplateFusion",
+    "EnrollmentCommitPlan",
     "保留现有",
     "追加学习",
     "删除并重新录入",
@@ -62,12 +63,28 @@ for fragment in (
     "tracked != null ? tracked : -1",
     "identityGuard.reset();",
     "historyStore.saveVersion(",
-    "TemplateFusion.fuse(",
+    "EnrollmentCommitPlan.build(",
     "EnrollmentIntent.APPEND",
     "EnrollmentIntent.REPLACE_AFTER_DELETE",
     "Bitmap.CompressFormat.WEBP",
+    "historyStore.deleteVersion(name, version)",
 ):
     require(fragment in main, f"MainActivity missing {fragment}")
+
+preflight_index = main.find("EnrollmentCommitPlan.build(")
+history_publish_index = main.find("historyStore.saveVersion(")
+require(preflight_index >= 0 and history_publish_index >= 0 and preflight_index < history_publish_index,
+        "all three active templates must be preflighted before immutable history is published")
+
+plan = (JAVA / "EnrollmentCommitPlan.java").read_text(encoding="utf-8")
+for fragment in (
+    "TemplateFusion.fuse(",
+    "ModelVariant.values()",
+    "historical active template missing",
+    "effectiveSamplesBefore",
+    "effectiveSamplesAfter",
+):
+    require(fragment in plan, f"EnrollmentCommitPlan missing {fragment}")
 
 require("noTrackingSequence" not in main,
         "no-tracking fallback must not synthesize a new identity every frame")
@@ -95,7 +112,7 @@ for fragment in ("deleteArchive(", "deleteReference(", "deleteIdentityData("):
 history = (JAVA / "EnrollmentHistoryStore.java").read_text(encoding="utf-8")
 for fragment in (
     "saveVersion(", "latest(", "versions(", "loadVersion(",
-    "loadFiveFrames", "deleteIdentity(", "enrollment_history",
+    "loadFiveFrames", "deleteIdentity(", "deleteVersion(", "enrollment_history",
     '"s" + (i + 1) + ".webp"', "record.txt",
 ):
     require(fragment in history, f"EnrollmentHistoryStore missing {fragment}")
@@ -118,4 +135,4 @@ require("Verify R5 APK contents and ABI" in workflow, "workflow must verify R5 a
 require("FaceLiVT-Mobile-Lab-R5-debug.apk" in workflow, "workflow must package R5 APK")
 require("FaceLiVT-Mobile-Lab-R5-debug-apk" in workflow, "workflow must upload R5 artifact")
 
-print("R5 IDENTITY GUARD CONTRACT PASS: duplicate hard-block, XML-safe panel, temporal fallback, history replay, append/delete lifecycle and stale-result safety are wired")
+print("R5 IDENTITY GUARD CONTRACT PASS: duplicate hard-block, XML-safe panel, temporal fallback, atomic append preflight, history replay, append/delete lifecycle and stale-result safety are wired")
