@@ -367,7 +367,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="9dp"
-                        android:text="512D → 2D embedding 投影 · PCA 坐标不可跨模型直接比较"
+                        android:text="512D → 2D embedding 投影 · PCA 坐标不可跨模型直接比较 · PCA 坐标不可跨模型直接比较"
                         android:textColor="#FFFFFF"
                         android:textStyle="bold" />
 
