@@ -28,6 +28,25 @@ jobs:
       - name: Verify R3.2 model microscope linkage
         run: python tools/verify_model_microscope_linkage.py
 
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+
       - name: Install model export toolchain
         run: |
           python -m pip install --upgrade pip
@@ -45,28 +64,15 @@ jobs:
           HF_HUB_DISABLE_TELEMETRY: '1'
         run: |
           python tools/export_facelivtv2.py --variant xs --upstream upstream-facelivt --output app/src/main/assets/facelivtv2_xs.onnx
+          python tools/verify_r4_diagnostic_onnx.py app/src/main/assets/facelivtv2_xs.onnx
           python tools/export_facelivtv2.py --variant s  --upstream upstream-facelivt --output app/src/main/assets/facelivtv2_s.onnx
+          python tools/verify_r4_diagnostic_onnx.py app/src/main/assets/facelivtv2_s.onnx
           python tools/export_facelivtv2.py --variant m  --upstream upstream-facelivt --output app/src/main/assets/facelivtv2_m.onnx
+          python tools/verify_r4_diagnostic_onnx.py app/src/main/assets/facelivtv2_m.onnx
           ls -lh app/src/main/assets/facelivtv2_*.onnx
 
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-
-      - name: Install Android SDK
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
-
-      - name: Unit tests and APK
-        run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
+      - name: Assemble APK
+        run: gradle :app:assembleDebug --stacktrace
 
       - name: Verify R3.2 APK contents and ABI
         run: |
