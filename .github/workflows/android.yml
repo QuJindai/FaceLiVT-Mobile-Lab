@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [ main, feat/r2-big-validation, fix/r2-ui-safe-area, feat/r3-face-microscope, feat/r31-calibration-microscope, fix/r32-model-microscope-linkage, feat/r4-deep-microscope, fix/r4-deep-reconcile, feat/r5-identity-guard-history, fix/r51-guard-deep-microscope ]
+    branches: [ main, feat/r2-big-validation, fix/r2-ui-safe-area, feat/r3-face-microscope, feat/r31-calibration-microscope, fix/r32-model-microscope-linkage, feat/r4-deep-microscope, fix/r4-deep-reconcile, feat/r5-identity-guard-history, fix/r51-guard-deep-microscope, fix/r52-guard-deep-flicker ]
   workflow_dispatch:
 
 jobs:
@@ -33,6 +33,9 @@ jobs:
 
       - name: Verify R5.1 Guard deep microscope contract
         run: python tools/verify_r51_guard_deep_microscope.py
+
+      - name: Verify R5.2 Guard deep stability contract
+        run: python tools/verify_r52_guard_deep_stability.py
 
       - uses: actions/setup-java@v5
         with:
