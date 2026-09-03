@@ -1111,6 +1111,7 @@ public class MainActivity extends AppCompatActivity {
             runOnUiThread(() -> clearExistingIdentityContextUi("检测到新的跟踪人脸，重新执行身份防重"));
         }
         long requestGeneration = identityGuard.captureGeneration();
+        ModelVariant guardFocus = inspectVariant;
         boolean valid = quality != null && quality.passesProbeGate();
         boolean fullGeometry = geometry != null && !geometry.usedFallback && geometry.landmarkCount == 5;
         EnumMap<ModelVariant, IdentityGuardEngine.ModelEvidence> evidence = new EnumMap<>(ModelVariant.class);
@@ -1118,8 +1119,8 @@ public class MainActivity extends AppCompatActivity {
 
         if (valid) {
             for (ModelVariant variant : ModelVariant.values()) {
-                RecognizerBank.TimedEmbedding embedding = recognizerBank.embed(variant, aligned);
-                List<FaceStore.Match> top = faceStore.topMatches(variant, embedding.embedding, 2);
+                float[] embedding = guardEmbeddingWithDeepDiagnostic(aligned, variant, guardFocus);
+                List<FaceStore.Match> top = faceStore.topMatches(variant, embedding, 2);
                 FaceStore.Match one = top.size() > 0 ? top.get(0) : null;
                 FaceStore.Match two = top.size() > 1 ? top.get(1) : null;
                 IdentityGuardEngine.ModelEvidence modelEvidence = new IdentityGuardEngine.ModelEvidence(
@@ -1148,6 +1149,29 @@ public class MainActivity extends AppCompatActivity {
                 updateActionState();
             }
         });
+    }
+
+    private float[] guardEmbeddingWithDeepDiagnostic(Bitmap aligned, ModelVariant variant, ModelVariant focus) throws Exception {
+        if (variant != focus) return recognizerBank.embed(variant, aligned).embedding;
+
+        DeepModelStats cached = latestDeepStats.get(focus);
+        long now = SystemClock.elapsedRealtime();
+        if (cached != null && now - lastDeepDiagnosticMs < 1000L) {
+            return recognizerBank.embed(variant, aligned).embedding;
+        }
+
+        lastDeepDiagnosticMs = now;
+        try {
+            RecognizerBank.TimedDiagnostic diagnostic = recognizerBank.diagnose(focus, aligned);
+            latestDeepStats.put(focus, diagnostic.stats);
+            runOnUiThread(() -> {
+                if (currentPage != Page.ENROLLMENT || inspectVariant != focus || enrollmentRemaining.get() > 0) return;
+                renderDeepModelStats(focus, diagnostic.stats, true);
+            });
+            return diagnostic.embedding;
+        } catch (Exception e) {
+            return recognizerBank.embed(variant, aligned).embedding;
+        }
     }
 
     private void renderIdentityGuardPanel() {
