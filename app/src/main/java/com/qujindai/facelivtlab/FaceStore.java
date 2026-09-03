@@ -2,11 +2,11 @@ package com.qujindai.facelivtlab;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.util.Base64;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -22,7 +22,13 @@ public final class FaceStore {
     private final SharedPreferences prefs;
 
     public FaceStore(Context context) {
-        prefs = context.getSharedPreferences("face_store", Context.MODE_PRIVATE);
+        this(context.getSharedPreferences("face_store", Context.MODE_PRIVATE));
+    }
+
+    /** Package-private injection keeps destructive lifecycle semantics unit-testable without Robolectric. */
+    FaceStore(SharedPreferences prefs) {
+        if (prefs == null) throw new IllegalArgumentException("preferences required");
+        this.prefs = prefs;
     }
 
     public synchronized void addSample(String name, float[] embedding) {
@@ -45,7 +51,7 @@ public final class FaceStore {
         saveTemplateSum(name, variant, merged, count + 1);
     }
 
-    /** Replace the model-specific identity template with an R3 quality-weighted centroid. */
+    /** Replace the model-specific identity template with a normalized centroid/effective evidence count. */
     public synchronized void replaceTemplate(String name, ModelVariant variant, float[] centroid, int sampleCount) {
         if (name == null || name.trim().isEmpty() || centroid == null || centroid.length == 0) {
             throw new IllegalArgumentException("name and centroid are required");
@@ -99,21 +105,71 @@ public final class FaceStore {
         return ref == null ? null : VectorMath.normalize(ref);
     }
 
+    public synchronized int sampleCount(String name, ModelVariant variant) {
+        if (name == null || name.trim().isEmpty() || variant == null) return 0;
+        name = name.trim();
+        migrateLegacySIfNeeded(name, variant);
+        return prefs.contains(TemplateKey.vector(name, variant))
+                ? Math.max(1, prefs.getInt(TemplateKey.count(name, variant), 1)) : 0;
+    }
+
     public synchronized Set<String> identityNames() {
         return new HashSet<>(prefs.getStringSet("names", new HashSet<>()));
     }
 
     public synchronized boolean hasTemplate(String name, ModelVariant variant) {
-        migrateLegacySIfNeeded(name, variant);
-        return prefs.contains(TemplateKey.vector(name, variant));
+        if (name == null || variant == null) return false;
+        migrateLegacySIfNeeded(name.trim(), variant);
+        return prefs.contains(TemplateKey.vector(name.trim(), variant));
     }
 
-    public int identityCount() {
+    public synchronized void deleteTemplate(String name, ModelVariant variant) {
+        if (name == null || name.trim().isEmpty() || variant == null) return;
+        String id = name.trim();
+        SharedPreferences.Editor editor = prefs.edit()
+                .remove(TemplateKey.vector(id, variant))
+                .remove(TemplateKey.count(id, variant));
+        if (variant == ModelVariant.S) {
+            editor.remove(TemplateKey.legacyVector(id)).remove(TemplateKey.legacyCount(id));
+        }
+        editor.apply();
+        if (!hasAnyStoredTemplate(id)) removeName(id);
+    }
+
+    public synchronized void deleteIdentity(String name) {
+        if (name == null || name.trim().isEmpty()) return;
+        String id = name.trim();
+        SharedPreferences.Editor editor = prefs.edit();
+        for (ModelVariant variant : ModelVariant.values()) {
+            editor.remove(TemplateKey.vector(id, variant));
+            editor.remove(TemplateKey.count(id, variant));
+        }
+        editor.remove(TemplateKey.legacyVector(id));
+        editor.remove(TemplateKey.legacyCount(id));
+        Set<String> names = new HashSet<>(prefs.getStringSet("names", new HashSet<>()));
+        names.remove(id);
+        editor.putStringSet("names", names).apply();
+    }
+
+    public synchronized int identityCount() {
         return prefs.getStringSet("names", new HashSet<>()).size();
     }
 
+    private boolean hasAnyStoredTemplate(String name) {
+        for (ModelVariant variant : ModelVariant.values()) {
+            if (prefs.contains(TemplateKey.vector(name, variant))) return true;
+        }
+        return prefs.contains(TemplateKey.legacyVector(name));
+    }
+
+    private void removeName(String name) {
+        Set<String> names = new HashSet<>(prefs.getStringSet("names", new HashSet<>()));
+        if (!names.remove(name)) return;
+        prefs.edit().putStringSet("names", names).apply();
+    }
+
     private void migrateLegacySIfNeeded(String name, ModelVariant variant) {
-        if (variant != ModelVariant.S) return;
+        if (variant != ModelVariant.S || name == null || name.isEmpty()) return;
         String newVector = TemplateKey.vector(name, ModelVariant.S);
         if (prefs.contains(newVector)) return;
         String legacyVector = prefs.getString(TemplateKey.legacyVector(name), null);
@@ -128,12 +184,12 @@ public final class FaceStore {
     private static String encode(float[] vector) {
         ByteBuffer buf = ByteBuffer.allocate(vector.length * 4).order(ByteOrder.LITTLE_ENDIAN);
         for (float v : vector) buf.putFloat(v);
-        return Base64.encodeToString(buf.array(), Base64.NO_WRAP);
+        return Base64.getEncoder().encodeToString(buf.array());
     }
 
     private static float[] decode(String encoded) {
         if (encoded == null) return null;
-        byte[] bytes = Base64.decode(encoded, Base64.NO_WRAP);
+        byte[] bytes = Base64.getDecoder().decode(encoded);
         if ((bytes.length & 3) != 0) return null;
         ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
         float[] out = new float[bytes.length / 4];

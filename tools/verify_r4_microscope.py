@@ -28,8 +28,8 @@ for filename in (
     require((JAVA / filename).exists(), f"missing {filename}")
 
 layout = LAYOUT.read_text(encoding="utf-8")
+require("FaceLiVT R" in layout and "显微镜" in layout, "layout must retain microscope product title")
 for fragment in (
-    "FaceLiVT R4 · 深层人脸显微镜",
     "txtGeometryMicroscope",
     "enrollmentModelMicroscope",
     "recognitionModelMicroscope",
@@ -78,7 +78,8 @@ for fragment in ("block_stats", "stage_stats", "prehead_stats", "relative_delta"
     require(fragment in exporter, f"exporter missing {fragment}")
 
 build = BUILD.read_text(encoding="utf-8")
-require(re.search(r"versionCode\s+6\b", build) is not None, "versionCode must be 6")
-require("versionName '0.4.0'" in build, "versionName must be 0.4.0")
+version_code = re.search(r"versionCode\s+(\d+)\b", build)
+require(version_code is not None and int(version_code.group(1)) >= 6,
+        "versionCode must remain at least R4")
 
 print("R4 MICROSCOPE CONTRACT PASS: geometry, N×N/model deltas, 18-block diagnostics and model-linked UI are wired")

@@ -9,7 +9,9 @@ public final class EnrollmentSession {
     public static final float MIN_AVERAGE_QUALITY = 0.55f;
     public static final float MIN_STABILITY = 0.70f;
     public static final float MIN_COVERAGE = 0.35f;
+    public static final float MIN_CONTINUITY_COSINE = 0.55f;
     public static final int MIN_SAMPLES = 5;
+    private static final int MIN_CONTINUITY_MODEL_VOTES = 2;
     private static final float NOVELTY_MAX_COSINE = 0.985f;
     private static final float NOVELTY_POSE_DELTA_DEG = 3.0f;
 
@@ -86,6 +88,38 @@ public final class EnrollmentSession {
             throw new IllegalArgumentException("variant, embedding and quality are required");
         }
         samples.get(variant).add(new Sample(embedding.clone(), quality));
+    }
+
+    /**
+     * Prevents a person swap during the five-frame capture. The first accepted frame establishes
+     * the session subject; subsequent frames need at least two model-local centroid agreements.
+     */
+    public synchronized boolean isSameSubjectCandidate(EnumMap<ModelVariant, float[]> candidateEmbeddings) {
+        if (sampleCount() == 0) return true;
+        if (candidateEmbeddings == null) return false;
+        int comparable = 0;
+        int votes = 0;
+        for (ModelVariant variant : ModelVariant.values()) {
+            List<Sample> list = samples.get(variant);
+            float[] candidate = candidateEmbeddings.get(variant);
+            if (list == null || list.isEmpty() || candidate == null || candidate.length == 0) continue;
+            int dimensions = list.get(0).embedding.length;
+            if (candidate.length != dimensions) continue;
+            float[] weighted = new float[dimensions];
+            double totalWeight = 0.0;
+            for (Sample sample : list) {
+                if (sample.embedding.length != dimensions) continue;
+                double alpha = Math.max(sample.quality.composite, 0.05f);
+                totalWeight += alpha;
+                for (int i = 0; i < dimensions; i++) weighted[i] += sample.embedding[i] * alpha;
+            }
+            if (totalWeight <= 0.0) continue;
+            for (int i = 0; i < weighted.length; i++) weighted[i] /= (float) totalWeight;
+            float cosine = VectorMath.cosine(VectorMath.normalize(candidate), VectorMath.normalize(weighted));
+            comparable++;
+            if (Float.isFinite(cosine) && cosine >= MIN_CONTINUITY_COSINE) votes++;
+        }
+        return comparable >= MIN_CONTINUITY_MODEL_VOTES && votes >= MIN_CONTINUITY_MODEL_VOTES;
     }
 
     public synchronized boolean isNovelCandidate(ModelVariant variant, float[] embedding, FaceQuality.Snapshot quality) {
