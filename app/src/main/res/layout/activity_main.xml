@@ -2,182 +2,500 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
-
-    <androidx.camera.view.PreviewView
-        android:id="@+id/previewView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+    android:layout_height="match_parent"
+    android:background="#090C0D">
 
     <LinearLayout
-        android:id="@+id/topOverlay"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top"
-        android:background="#B3000000"
-        android:orientation="horizontal"
-        android:padding="12dp">
+        android:layout_height="match_parent"
+        android:orientation="vertical">
 
         <LinearLayout
-            android:layout_width="0dp"
+            android:id="@+id/topOverlay"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingLeft="10dp"
+            android:paddingTop="8dp"
+            android:paddingRight="10dp"
+            android:paddingBottom="8dp"
+            android:background="#F0151B1E">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="FaceLiVT R3 · 人脸显微镜"
+                    android:textColor="#FFFFFF"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnSwitch"
+                    style="@style/Widget.FaceLiVTLab.Button.Secondary"
+                    android:layout_width="88dp"
+                    android:layout_height="54dp"
+                    android:text="切相机" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/tabEnrollment"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp"
+                    android:background="@drawable/r3_tab_active"
+                    android:text="录入显微镜"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/tabRecognition"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:background="@drawable/r3_tab_inactive"
+                    android:text="检测显微镜"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/txtActionHint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="相机初始化中 · 录入和检测已拆分为独立工作流"
+                android:textColor="#B9D8D2"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="250dp"
+            android:background="#000000">
+
+            <androidx.camera.view.PreviewView
+                android:id="@+id/previewView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top"
+                android:orientation="horizontal"
+                android:padding="8dp"
+                android:background="#8A000000">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/txtResult"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="R3 初始化中"
+                        android:textColor="#FFFFFF"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/txtMetrics"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="等待相机"
+                        android:textColor="#E6FFFFFF"
+                        android:textSize="10sp" />
+
+                    <TextView
+                        android:id="@+id/txtPerf"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="性能/温度等待中"
+                        android:textColor="#E6FFFFFF"
+                        android:textSize="10sp" />
+                </LinearLayout>
+
+                <ImageView
+                    android:id="@+id/imgDegraded"
+                    android:layout_width="96dp"
+                    android:layout_height="72dp"
+                    android:layout_marginStart="6dp"
+                    android:background="#33000000"
+                    android:contentDescription="当前模型输入画面"
+                    android:scaleType="centerCrop" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <FrameLayout
+            android:id="@+id/bottomControls"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
             android:layout_weight="1"
-            android:orientation="vertical">
+            android:background="#F0121719">
 
-            <TextView
-                android:id="@+id/txtResult"
+            <ScrollView
+                android:id="@+id/pageEnrollment"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="R2 初始化中"
-                android:textColor="#FFFFFF"
-                android:textSize="18sp"
-                android:textStyle="bold" />
+                android:layout_height="match_parent"
+                android:fillViewport="true">
 
-            <TextView
-                android:id="@+id/txtMetrics"
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="10dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="01 录入质量档案"
+                        android:textColor="#FFFFFF"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:text="先观察每一帧质量，再构建三套模型各自的质量加权模板。"
+                        android:textColor="#B8C9C7"
+                        android:textSize="11sp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="8dp"
+                        android:orientation="horizontal">
+
+                        <Spinner
+                            android:id="@+id/spinnerProfile"
+                            style="@style/Widget.FaceLiVTLab.Spinner"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1.05" />
+
+                        <EditText
+                            android:id="@+id/editName"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="0.95"
+                            android:layout_marginStart="8dp"
+                            android:hint="姓名/编号"
+                            android:singleLine="true"
+                            android:textColor="#FFFFFF"
+                            android:textColorHint="#90FFFFFF" />
+                    </LinearLayout>
+
+                    <Button
+                        android:id="@+id/btnEnroll"
+                        style="@style/Widget.FaceLiVTLab.Button.Primary"
+                        android:layout_width="match_parent"
+                        android:layout_height="54dp"
+                        android:layout_marginTop="8dp"
+                        android:text="开始质量录入 ×5" />
+
+                    <TextView
+                        android:id="@+id/txtEnrollmentLiveQuality"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/r3_panel"
+                        android:text="实时质量：等待人脸"
+                        android:textColor="#E8F5F2"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="采样带 · 每帧都是模板建设证据"
+                        android:textColor="#FFFFFF"
+                        android:textStyle="bold" />
+
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="84dp"
+                        android:layout_marginTop="5dp"
+                        android:fillViewport="true">
+
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="match_parent"
+                            android:orientation="horizontal">
+
+                            <ImageView android:id="@+id/sampleFace1" android:layout_width="72dp" android:layout_height="72dp" android:layout_margin="3dp" android:background="#263238" android:contentDescription="样本1" android:scaleType="centerCrop" />
+                            <ImageView android:id="@+id/sampleFace2" android:layout_width="72dp" android:layout_height="72dp" android:layout_margin="3dp" android:background="#263238" android:contentDescription="样本2" android:scaleType="centerCrop" />
+                            <ImageView android:id="@+id/sampleFace3" android:layout_width="72dp" android:layout_height="72dp" android:layout_margin="3dp" android:background="#263238" android:contentDescription="样本3" android:scaleType="centerCrop" />
+                            <ImageView android:id="@+id/sampleFace4" android:layout_width="72dp" android:layout_height="72dp" android:layout_margin="3dp" android:background="#263238" android:contentDescription="样本4" android:scaleType="centerCrop" />
+                            <ImageView android:id="@+id/sampleFace5" android:layout_width="72dp" android:layout_height="72dp" android:layout_margin="3dp" android:background="#263238" android:contentDescription="样本5" android:scaleType="centerCrop" />
+                        </LinearLayout>
+                    </HorizontalScrollView>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="6dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="观察模型 "
+                            android:textColor="#B8C9C7" />
+
+                        <Spinner
+                            android:id="@+id/spinnerEnrollmentInspectModel"
+                            style="@style/Widget.FaceLiVTLab.Spinner"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/txtEnrollmentArchive"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/r3_panel"
+                        android:text="质量档案将在 5 帧采集后生成：质量、姿态、样本→中心相似度、稳定性和入库结论。"
+                        android:textColor="#E8F5F2"
+                        android:textIsSelectable="true"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/txtEnrollmentFormula"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/r3_panel"
+                        android:text="公式链\nQi = .25Qsharp + .15Qlight + .10Qcontrast + .20Qpose + .15Qlandmark + .15Qsize\nαi=max(Qi,.05) → c=normalize(Σαifi/Σαi)\nSstable=mean(cos(fi,c)) · D=mean(1-cos(fi,c))\nPass=N≥5 ∧ Qavg≥.55 ∧ Sstable≥.70"
+                        android:textColor="#D9FFF7"
+                        android:textIsSelectable="true"
+                        android:textSize="11sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="9dp"
+                        android:text="样本相似度矩阵"
+                        android:textColor="#FFFFFF"
+                        android:textStyle="bold" />
+
+                    <com.qujindai.facelivtlab.SimilarityMatrixView
+                        android:id="@+id/similarityMatrix"
+                        android:layout_width="match_parent"
+                        android:layout_height="180dp"
+                        android:layout_marginTop="4dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="9dp"
+                        android:text="512D → 2D embedding 投影"
+                        android:textColor="#FFFFFF"
+                        android:textStyle="bold" />
+
+                    <com.qujindai.facelivtlab.EmbeddingScatterView
+                        android:id="@+id/embeddingScatter"
+                        android:layout_width="match_parent"
+                        android:layout_height="190dp"
+                        android:layout_marginTop="4dp" />
+                </LinearLayout>
+            </ScrollView>
+
+            <ScrollView
+                android:id="@+id/pageRecognition"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="等待相机"
-                android:textColor="#E6FFFFFF"
-                android:textSize="12sp" />
-
-            <TextView
-                android:id="@+id/txtPerf"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="性能/温度等待中"
-                android:textColor="#E6FFFFFF"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <ImageView
-            android:id="@+id/imgDegraded"
-            android:layout_width="112dp"
-            android:layout_height="76dp"
-            android:layout_marginStart="8dp"
-            android:background="#33000000"
-            android:contentDescription="模型实际看到的降质画面"
-            android:scaleType="centerCrop" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/bottomControls"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:background="#F2111111"
-        android:orientation="vertical"
-        android:padding="12dp">
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="虚拟廉价摄像头 · R2.1"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/txtActionHint"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:layout_marginBottom="4dp"
-            android:text="状态：正在初始化相机"
-            android:textColor="#BFD3CF"
-            android:textSize="12sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:orientation="horizontal">
-
-            <Spinner
-                android:id="@+id/spinnerProfile"
-                style="@style/Widget.FaceLiVTLab.Spinner"
-                android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1" />
+                android:fillViewport="true"
+                android:visibility="gone">
 
-            <Spinner
-                android:id="@+id/spinnerModel"
-                style="@style/Widget.FaceLiVTLab.Spinner"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1" />
-        </LinearLayout>
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="10dp">
 
-        <TextView
-            android:id="@+id/txtThreshold"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="识别阈值 0.45"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp" />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="02 检测决策显微镜"
+                        android:textColor="#FFFFFF"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
 
-        <SeekBar
-            android:id="@+id/seekThreshold"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:max="100"
-            android:progress="42" />
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="7dp"
+                        android:orientation="horizontal">
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="54dp"
-            android:orientation="horizontal">
+                        <Spinner
+                            android:id="@+id/spinnerRecognitionProfile"
+                            style="@style/Widget.FaceLiVTLab.Spinner"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1" />
 
-            <EditText
-                android:id="@+id/editName"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_marginEnd="8dp"
-                android:layout_weight="1"
-                android:backgroundTint="#C7D4D1"
-                android:hint="姓名/编号"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp"
-                android:singleLine="true"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#AFC3BF"
-                android:textSize="16sp" />
+                        <Spinner
+                            android:id="@+id/spinnerModel"
+                            style="@style/Widget.FaceLiVTLab.Spinner"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:layout_marginStart="8dp" />
+                    </LinearLayout>
 
-            <Button
-                android:id="@+id/btnEnroll"
-                style="@style/Widget.FaceLiVTLab.Button.Primary"
-                android:layout_width="wrap_content"
-                android:layout_height="54dp"
-                android:minWidth="144dp"
-                android:text="三模型录入×5" />
-        </LinearLayout>
+                    <TextView
+                        android:id="@+id/txtThreshold"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="身份阈值 0.45 · 质量门 Q≥0.35"
+                        android:textColor="#FFFFFF"
+                        android:textSize="12sp" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="54dp"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
+                    <SeekBar
+                        android:id="@+id/seekThreshold"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:max="100"
+                        android:progress="42" />
 
-            <Button
-                android:id="@+id/btnSwitch"
-                style="@style/Widget.FaceLiVTLab.Button.Secondary"
-                android:layout_width="0dp"
-                android:layout_height="54dp"
-                android:layout_marginEnd="4dp"
-                android:layout_weight="1"
-                android:text="切换相机" />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="检测器实际输入 + 人脸框 + 5点关键点"
+                        android:textColor="#FFFFFF"
+                        android:textStyle="bold" />
 
-            <Button
-                android:id="@+id/btnExport"
-                style="@style/Widget.FaceLiVTLab.Button.Primary"
-                android:layout_width="0dp"
-                android:layout_height="54dp"
-                android:layout_marginStart="4dp"
-                android:layout_weight="1"
-                android:text="导出 CSV" />
-        </LinearLayout>
+                    <FrameLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="190dp"
+                        android:layout_marginTop="5dp"
+                        android:background="#050707">
+
+                        <ImageView
+                            android:id="@+id/imgProbeFrame"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:contentDescription="检测器实际输入"
+                            android:scaleType="fitCenter" />
+
+                        <com.qujindai.facelivtlab.FaceOverlayView
+                            android:id="@+id/faceOverlay"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent" />
+                    </FrameLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="124dp"
+                        android:layout_marginTop="7dp"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:id="@+id/imgAlignedProbe"
+                            android:layout_width="112dp"
+                            android:layout_height="112dp"
+                            android:background="#263238"
+                            android:contentDescription="5点对齐后的112人脸"
+                            android:scaleType="centerCrop" />
+
+                        <TextView
+                            android:id="@+id/txtRecognitionQuality"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:layout_marginStart="8dp"
+                            android:background="@drawable/r3_panel"
+                            android:text="Probe 质量：等待人脸"
+                            android:textColor="#E8F5F2"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/txtPipeline"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/r3_panel"
+                        android:text="链路：frame → degrade → detect → 5pt align → quality gate → embed → 5帧融合 → Top-K → decision"
+                        android:textColor="#D9FFF7"
+                        android:textIsSelectable="true"
+                        android:textSize="11sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="9dp"
+                        android:text="Top-K 相似度 + 身份阈值"
+                        android:textColor="#FFFFFF"
+                        android:textStyle="bold" />
+
+                    <com.qujindai.facelivtlab.TopKBarView
+                        android:id="@+id/topKChart"
+                        android:layout_width="match_parent"
+                        android:layout_height="165dp"
+                        android:layout_marginTop="4dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="9dp"
+                        android:text="连续帧稳定性"
+                        android:textColor="#FFFFFF"
+                        android:textStyle="bold" />
+
+                    <com.qujindai.facelivtlab.TrendChartView
+                        android:id="@+id/trendChart"
+                        android:layout_width="match_parent"
+                        android:layout_height="170dp"
+                        android:layout_marginTop="4dp" />
+
+                    <TextView
+                        android:id="@+id/txtRecognitionFormula"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/r3_panel"
+                        android:text="公式链\nsk=cos(fprobe,ck) · k*=argmax(sk)\nmargin=stop1-stop2\nAccept=(stop1≥Tid) ∧ (Qprobe≥0.35)"
+                        android:textColor="#D9FFF7"
+                        android:textIsSelectable="true"
+                        android:textSize="11sp" />
+
+                    <Button
+                        android:id="@+id/btnExport"
+                        style="@style/Widget.FaceLiVTLab.Button.Secondary"
+                        android:layout_width="match_parent"
+                        android:layout_height="54dp"
+                        android:layout_marginTop="9dp"
+                        android:text="导出显微镜 CSV" />
+                </LinearLayout>
+            </ScrollView>
+        </FrameLayout>
     </LinearLayout>
 </FrameLayout>
