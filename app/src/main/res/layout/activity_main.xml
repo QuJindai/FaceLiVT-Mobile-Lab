@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -9,12 +10,13 @@
         android:layout_height="match_parent" />
 
     <LinearLayout
+        android:id="@+id/topOverlay"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
+        android:background="#B3000000"
         android:orientation="horizontal"
-        android:padding="10dp"
-        android:background="#AA000000">
+        android:padding="12dp">
 
         <LinearLayout
             android:layout_width="0dp"
@@ -35,61 +37,76 @@
                 android:id="@+id/txtMetrics"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
+                android:layout_marginTop="4dp"
                 android:text="等待相机"
                 android:textColor="#E6FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="12sp" />
 
             <TextView
                 android:id="@+id/txtPerf"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
+                android:layout_marginTop="4dp"
                 android:text="性能/温度等待中"
                 android:textColor="#E6FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="12sp" />
         </LinearLayout>
 
         <ImageView
             android:id="@+id/imgDegraded"
             android:layout_width="112dp"
             android:layout_height="76dp"
-            android:layout_marginStart="6dp"
+            android:layout_marginStart="8dp"
             android:background="#33000000"
             android:contentDescription="模型实际看到的降质画面"
             android:scaleType="centerCrop" />
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/bottomControls"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
+        android:background="#F2111111"
         android:orientation="vertical"
-        android:padding="10dp"
-        android:background="#DD111111">
+        android:padding="12dp">
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="虚拟廉价摄像头 · R2"
+            android:text="虚拟廉价摄像头 · R2.1"
             android:textColor="#FFFFFF"
+            android:textSize="16sp"
             android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/txtActionHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="4dp"
+            android:text="状态：正在初始化相机"
+            android:textColor="#BFD3CF"
+            android:textSize="12sp" />
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="44dp"
+            android:layout_height="52dp"
             android:orientation="horizontal">
 
             <Spinner
                 android:id="@+id/spinnerProfile"
+                style="@style/Widget.FaceLiVTLab.Spinner"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1" />
 
             <Spinner
                 android:id="@+id/spinnerModel"
+                style="@style/Widget.FaceLiVTLab.Spinner"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
+                android:layout_marginStart="8dp"
                 android:layout_weight="1" />
         </LinearLayout>
 
@@ -97,9 +114,10 @@
             android:id="@+id/txtThreshold"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
             android:text="识别阈值 0.45"
             android:textColor="#FFFFFF"
-            android:textSize="12sp" />
+            android:textSize="13sp" />
 
         <SeekBar
             android:id="@+id/seekThreshold"
@@ -110,42 +128,54 @@
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="48dp"
+            android:layout_height="54dp"
             android:orientation="horizontal">
 
             <EditText
                 android:id="@+id/editName"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
+                android:layout_marginEnd="8dp"
                 android:layout_weight="1"
+                android:backgroundTint="#C7D4D1"
                 android:hint="姓名/编号"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
                 android:singleLine="true"
                 android:textColor="#FFFFFF"
-                android:textColorHint="#99FFFFFF" />
+                android:textColorHint="#AFC3BF"
+                android:textSize="16sp" />
 
             <Button
                 android:id="@+id/btnEnroll"
+                style="@style/Widget.FaceLiVTLab.Button.Primary"
                 android:layout_width="wrap_content"
-                android:layout_height="match_parent"
+                android:layout_height="54dp"
+                android:minWidth="144dp"
                 android:text="三模型录入×5" />
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="46dp"
+            android:layout_height="54dp"
+            android:layout_marginTop="8dp"
             android:orientation="horizontal">
 
             <Button
                 android:id="@+id/btnSwitch"
+                style="@style/Widget.FaceLiVTLab.Button.Secondary"
                 android:layout_width="0dp"
-                android:layout_height="match_parent"
+                android:layout_height="54dp"
+                android:layout_marginEnd="4dp"
                 android:layout_weight="1"
-                android:text="切相机" />
+                android:text="切换相机" />
 
             <Button
                 android:id="@+id/btnExport"
+                style="@style/Widget.FaceLiVTLab.Button.Primary"
                 android:layout_width="0dp"
-                android:layout_height="match_parent"
+                android:layout_height="54dp"
+                android:layout_marginStart="4dp"
                 android:layout_weight="1"
                 android:text="导出 CSV" />
         </LinearLayout>
