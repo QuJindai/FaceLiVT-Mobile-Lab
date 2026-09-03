@@ -2,11 +2,11 @@ package com.qujindai.facelivtlab;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.util.Base64;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -184,12 +184,12 @@ public final class FaceStore {
     private static String encode(float[] vector) {
         ByteBuffer buf = ByteBuffer.allocate(vector.length * 4).order(ByteOrder.LITTLE_ENDIAN);
         for (float v : vector) buf.putFloat(v);
-        return Base64.encodeToString(buf.array(), Base64.NO_WRAP);
+        return Base64.getEncoder().encodeToString(buf.array());
     }
 
     private static float[] decode(String encoded) {
         if (encoded == null) return null;
-        byte[] bytes = Base64.decode(encoded, Base64.NO_WRAP);
+        byte[] bytes = Base64.getDecoder().decode(encoded);
         if ((bytes.length & 3) != 0) return null;
         ByteBuffer buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
         float[] out = new float[bytes.length / 4];
