@@ -177,8 +177,9 @@ for fragment in ("0.05f", "0.55f", "0.10f", "0.62f", "0.08f"):
     require(fragment in policy, f"IdentityGuardPolicy missing threshold constant {fragment}")
 
 build = BUILD.read_text(encoding="utf-8")
-require(re.search(r"versionCode\s+7\b", build) is not None, "versionCode must be 7")
-require("versionName '0.5.0'" in build, "versionName must be 0.5.0")
+code_match = re.search(r"versionCode\s+(\d+)\b", build)
+require(code_match is not None and int(code_match.group(1)) >= 7, "versionCode must remain in the R5 release line")
+require(re.search(r"versionName\s+'0\.5\.\d+'", build) is not None, "versionName must remain in the 0.5.x R5 release line")
 
 workflow = WORKFLOW.read_text(encoding="utf-8")
 require("Verify R5 identity guard contract" in workflow, "workflow must run R5 contract")
