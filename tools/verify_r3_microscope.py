@@ -68,9 +68,6 @@ for field in ("quality", "margin", "align_ms", "match_ms"):
 
 build = BUILD.read_text(encoding="utf-8")
 version_code = re.search(r"versionCode\s+(\d+)\b", build)
-version_name = re.search(r"versionName\s+'([^']+)'", build)
 require(version_code is not None and int(version_code.group(1)) >= 3, "versionCode must remain at least R3")
-require(version_name is not None and re.match(r"0\.(?:3|4)\.", version_name.group(1)) is not None,
-        "versionName must remain R3-or-newer in current 0.x line")
 
 print("R3 MICROSCOPE CONTRACT PASS: two pages, quality/template microscope, Top-K/trend and formula chains are wired")

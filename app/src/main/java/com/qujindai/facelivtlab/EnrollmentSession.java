@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 
-/** Collects one five-sample enrollment and exposes stability AND coverage as separate template qualities. */
+/** Collects one enrollment and exposes stability, coverage and pair geometry as separate qualities. */
 public final class EnrollmentSession {
     public static final float MIN_AVERAGE_QUALITY = 0.55f;
     public static final float MIN_STABILITY = 0.70f;
@@ -36,12 +36,17 @@ public final class EnrollmentSession {
         public final float[][] projection;
         public final float[] sampleToCentroid;
         public final List<FaceQuality.Snapshot> qualities;
+        public final float minPairCosine;
+        public final float meanPairCosine;
+        public final int outlierIndex;
+        public final float outlierMeanCosine;
 
         Summary(int sampleCount, float[] centroid, float averageQuality,
                 float stability, float dispersion, float coverage,
                 float embeddingCoverage, float poseCoverage, boolean allSamplesPassHardGate,
                 float[][] similarityMatrix, float[][] projection, float[] sampleToCentroid,
-                List<FaceQuality.Snapshot> qualities) {
+                List<FaceQuality.Snapshot> qualities, float minPairCosine, float meanPairCosine,
+                int outlierIndex, float outlierMeanCosine) {
             this.sampleCount = sampleCount;
             this.centroid = centroid;
             this.averageQuality = averageQuality;
@@ -55,6 +60,10 @@ public final class EnrollmentSession {
             this.projection = projection;
             this.sampleToCentroid = sampleToCentroid;
             this.qualities = qualities;
+            this.minPairCosine = minPairCosine;
+            this.meanPairCosine = meanPairCosine;
+            this.outlierIndex = outlierIndex;
+            this.outlierMeanCosine = outlierMeanCosine;
         }
 
         public boolean passesEnrollment() {
@@ -122,7 +131,8 @@ public final class EnrollmentSession {
         if (list == null || list.isEmpty()) {
             return new Summary(0, new float[0], 0f, 0f, 1f,
                     0f, 0f, 0f, false,
-                    new float[0][0], new float[0][0], new float[0], new ArrayList<>());
+                    new float[0][0], new float[0][0], new float[0], new ArrayList<>(),
+                    Float.NaN, Float.NaN, -1, Float.NaN);
         }
 
         int dimensions = list.get(0).embedding.length;
@@ -161,6 +171,8 @@ public final class EnrollmentSession {
         float[] toCentroid = new float[n];
         double stabilitySum = 0.0;
         double pairDistanceSum = 0.0;
+        double pairCosineSum = 0.0;
+        float minPairCosine = Float.POSITIVE_INFINITY;
         int pairCount = 0;
         for (int i = 0; i < n; i++) {
             toCentroid[i] = VectorMath.cosine(list.get(i).embedding, centroid);
@@ -170,6 +182,8 @@ public final class EnrollmentSession {
                 matrix[i][j] = cosine;
                 if (j > i) {
                     pairDistanceSum += Math.max(0f, 1f - cosine);
+                    pairCosineSum += cosine;
+                    minPairCosine = Math.min(minPairCosine, cosine);
                     pairCount++;
                 }
             }
@@ -179,6 +193,25 @@ public final class EnrollmentSession {
         float averageQuality = (float) (qualitySum / n);
 
         float meanPairDistance = pairCount == 0 ? 0f : (float) (pairDistanceSum / pairCount);
+        float meanPairCosine = pairCount == 0 ? Float.NaN : (float)(pairCosineSum / pairCount);
+        if (pairCount == 0) minPairCosine = Float.NaN;
+
+        int outlierIndex = -1;
+        float outlierMean = Float.NaN;
+        if (n > 1) {
+            float lowest = Float.POSITIVE_INFINITY;
+            for (int i = 0; i < n; i++) {
+                double rowSum = 0.0;
+                for (int j = 0; j < n; j++) if (j != i) rowSum += matrix[i][j];
+                float rowMean = (float)(rowSum / (n - 1));
+                if (rowMean < lowest) {
+                    lowest = rowMean;
+                    outlierIndex = i;
+                    outlierMean = rowMean;
+                }
+            }
+        }
+
         float embeddingCoverage = clamp01(meanPairDistance / 0.06f);
         float yawCoverage = clamp01((maxYaw - minYaw) / 12f);
         float pitchCoverage = clamp01((maxPitch - minPitch) / 10f);
@@ -192,7 +225,8 @@ public final class EnrollmentSession {
 
         return new Summary(n, centroid, averageQuality, stability, dispersion,
                 coverage, embeddingCoverage, poseCoverage, hardPass,
-                matrix, projection, toCentroid, qualityList);
+                matrix, projection, toCentroid, qualityList,
+                minPairCosine, meanPairCosine, outlierIndex, outlierMean);
     }
 
     private static float clamp01(float v) {

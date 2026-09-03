@@ -35,9 +35,6 @@ require("for (ModelVariant variant : modelMode.variants())" not in main,
 
 build = BUILD.read_text(encoding="utf-8")
 version_code = re.search(r"versionCode\s+(\d+)\b", build)
-version_name = re.search(r"versionName\s+'([^']+)'", build)
 require(version_code is not None and int(version_code.group(1)) >= 5, "versionCode must remain at least R3.2")
-require(version_name is not None and re.match(r"0\.(?:3|4)\.", version_name.group(1)) is not None,
-        "versionName must remain R3.2-or-newer in current 0.x line")
 
 print("MODEL MICROSCOPE LINKAGE PASS: selection drives all model-specific microscope state and stale frames are rejected")

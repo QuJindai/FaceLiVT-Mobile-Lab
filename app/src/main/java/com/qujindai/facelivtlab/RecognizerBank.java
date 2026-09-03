@@ -20,17 +20,16 @@ public final class RecognizerBank implements AutoCloseable {
         }
     }
 
-    public static final class TimedDiagnostics {
+    public static final class TimedDiagnostic {
         public final ModelVariant variant;
         public final float[] embedding;
-        public final ModelDiagnostics diagnostics;
+        public final DeepModelStats stats;
         public final long inferMs;
 
-        TimedDiagnostics(ModelVariant variant, float[] embedding,
-                         ModelDiagnostics diagnostics, long inferMs) {
+        TimedDiagnostic(ModelVariant variant, float[] embedding, DeepModelStats stats, long inferMs) {
             this.variant = variant;
             this.embedding = embedding;
-            this.diagnostics = diagnostics;
+            this.stats = stats;
             this.inferMs = inferMs;
         }
     }
@@ -58,11 +57,11 @@ public final class RecognizerBank implements AutoCloseable {
         return new TimedEmbedding(variant, embedding, ms);
     }
 
-    public TimedDiagnostics diagnose(ModelVariant variant, Bitmap aligned) throws Exception {
+    public TimedDiagnostic diagnose(ModelVariant variant, Bitmap aligned) throws Exception {
         long start = SystemClock.elapsedRealtimeNanos();
-        FaceRecognizer.DiagnosticEmbedding result = get(variant).embedWithDiagnostics(aligned);
+        FaceRecognizer.DiagnosticResult result = get(variant).diagnose(aligned);
         long ms = (SystemClock.elapsedRealtimeNanos() - start) / 1_000_000L;
-        return new TimedDiagnostics(variant, result.embedding, result.diagnostics, ms);
+        return new TimedDiagnostic(variant, result.embedding, result.stats, ms);
     }
 
     public EnumMap<ModelVariant, TimedEmbedding> embedAll(Bitmap aligned) throws Exception {
