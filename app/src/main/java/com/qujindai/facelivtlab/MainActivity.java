@@ -1143,12 +1143,25 @@ public class MainActivity extends AppCompatActivity {
             txtPerf.setText("Guard 本帧 detect " + detectMs + " / align " + alignMs + "ms · XS/S/M 身份检索\n" + thermalLine(thermal));
             renderIdentityGuardPanel();
             if (snapshot.state == IdentityGuardEngine.State.EXISTING && !snapshot.candidateIdentity.isEmpty()) {
-                enterExistingIdentity(snapshot.candidateIdentity, false);
+                applyExistingGuardSnapshot(snapshot);
             } else {
                 txtResult.setText("Identity Guard · " + snapshot.state + (snapshot.candidateIdentity.isEmpty() ? "" : " · " + snapshot.candidateIdentity));
                 updateActionState();
             }
         });
+    }
+
+    private void applyExistingGuardSnapshot(IdentityGuardEngine.Snapshot snapshot) {
+        if (snapshot == null || snapshot.candidateIdentity == null) return;
+        String id = snapshot.candidateIdentity.trim();
+        if (id.isEmpty()) return;
+        if (!id.equals(existingIdentityContext)) {
+            enterExistingIdentity(id, false);
+            return;
+        }
+        txtResult.setText("EXISTING · 已确认历史身份 · " + id + " · 历史已载入，实时深层显微镜继续");
+        renderIdentityGuardPanel();
+        updateActionState();
     }
 
     private float[] guardEmbeddingWithDeepDiagnostic(Bitmap aligned, ModelVariant variant, ModelVariant focus) throws Exception {
