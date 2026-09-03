@@ -96,7 +96,7 @@ history = (JAVA / "EnrollmentHistoryStore.java").read_text(encoding="utf-8")
 for fragment in (
     "saveVersion(", "latest(", "versions(", "loadVersion(",
     "loadFiveFrames", "deleteIdentity(", "enrollment_history",
-    "s1.webp", "record.txt",
+    '"s" + (i + 1) + ".webp"', "record.txt",
 ):
     require(fragment in history, f"EnrollmentHistoryStore missing {fragment}")
 
