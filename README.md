@@ -1,8 +1,25 @@
-# FaceLiVT Mobile Lab R3.1
+# FaceLiVT Mobile Lab R3.2
 
 Android on-device face-recognition **microscope and calibration workbench** for validating FaceLiVTv2 lightweight face models under intentionally degraded cheap-camera image quality.
 
 The phone camera remains high quality only for preview. Detection, alignment and recognition consume the degraded analysis frame.
+
+## R3.2: model selection drives the microscope
+
+R3.2 fixes model/UI state divergence found on handset testing. `S`, `XS`, and `M` are now the single source of truth for every model-specific microscope panel.
+
+When the model is switched, the app immediately:
+
+- changes the microscope focus to the selected backbone
+- clears the previous model's temporal fusion, Top-K and trend state
+- refreshes the empirical threshold calibration for that backbone
+- clears the previous fixed-PCA Probe projection and waits for a Probe from the new backbone
+- marks pipeline, formula and performance panels as waiting for the newly selected model instead of leaving stale values on screen
+- rejects any in-flight frame that started before the model switch, so an old-model result cannot overwrite the new microscope state
+
+`Probe` image-quality metrics are model-independent and are labelled as such. Model-dependent evidence—embedding, Top-K, margin, calibration, PCA projection, inference timing and decision formula—follows the selected backbone.
+
+In `XS / S / M Compare`, the microscope retains the most recently explicit XS/S/M focus instead of being permanently pinned to S. The existing `观察模型` selector can also change the microscope focus while Compare is active.
 
 ## R3.1: from microscope to calibrated microscope
 
@@ -117,7 +134,7 @@ GitHub Actions pins FaceLiVT upstream at commit `d99d86607c7c05540c74e815e5a8884
 - original PyTorch vs reparameterized graph cosine >= `0.99999`
 - reparameterized PyTorch vs ONNX Runtime cosine >= `0.99999`
 
-Final CI runs the R2.1 handset UI contract, R3 microscope contract, R3.1 calibration contract, all unit tests, Android APK build, three-model asset verification and arm64-only ABI verification.
+Final CI runs the handset UI contract, R3 microscope contract, R3.1 calibration contract, R3.2 model-linkage contract, all unit tests, Android APK build, three-model asset verification and arm64-only ABI verification.
 
 Upstream: https://github.com/novendrastywn/FaceLiVT
 
