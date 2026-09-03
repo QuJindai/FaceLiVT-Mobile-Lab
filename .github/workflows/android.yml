@@ -22,6 +22,9 @@ jobs:
       - name: Verify R3 microscope contract
         run: python tools/verify_r3_microscope.py
 
+      - name: Verify R3.1 calibration contract
+        run: python tools/verify_r31_calibration.py
+
       - name: Install model export toolchain
         run: |
           python -m pip install --upgrade pip
@@ -62,10 +65,10 @@ jobs:
       - name: Unit tests and APK
         run: gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
 
-      - name: Verify R3 APK contents and ABI
+      - name: Verify R3.1 APK contents and ABI
         run: |
           SRC=app/build/outputs/apk/debug/app-debug.apk
-          APK=FaceLiVT-Mobile-Lab-R3-debug.apk
+          APK=FaceLiVT-Mobile-Lab-R3.1-debug.apk
           cp "$SRC" "$APK"
           CONTENTS="$(unzip -Z1 "$APK")"
           for model in facelivtv2_xs.onnx facelivtv2_s.onnx facelivtv2_m.onnx; do
@@ -83,7 +86,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FaceLiVT-Mobile-Lab-R3-debug-apk
-          path: FaceLiVT-Mobile-Lab-R3-debug.apk
+          name: FaceLiVT-Mobile-Lab-R3.1-debug-apk
+          path: FaceLiVT-Mobile-Lab-R3.1-debug.apk
           if-no-files-found: error
           retention-days: 30
