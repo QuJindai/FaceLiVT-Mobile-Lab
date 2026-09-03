@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "app/src/main/java/com/qujindai/facelivtlab/MainActivity.java"
+BUILD = ROOT / "app/build.gradle"
 
 
 def require(condition: bool, message: str) -> None:
@@ -47,5 +49,9 @@ require("latestDeepStats.clear();" in history,
         "real history-version changes should still invalidate live deep stats")
 require("enrollmentModelMicroscope.clearStats(" in history,
         "real history-version changes should still clear the live Block microscope")
+
+build = BUILD.read_text(encoding="utf-8")
+require(re.search(r"versionCode\s+9\b", build) is not None, "versionCode must be 9")
+require("versionName '0.5.2'" in build, "versionName must be 0.5.2")
 
 print("R5.2 GUARD DEEP STABILITY PASS: repeated EXISTING frames no longer reload history or clear live 18-block diagnostics")
