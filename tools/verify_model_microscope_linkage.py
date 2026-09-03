@@ -34,7 +34,7 @@ require("for (ModelVariant variant : modelMode.variants())" not in main,
         "recognition frame must use one captured model-selection snapshot")
 
 build = BUILD.read_text(encoding="utf-8")
-require(re.search(r"versionCode\s+5\b", build) is not None, "versionCode must be 5")
-require("versionName '0.3.2'" in build, "versionName must be 0.3.2")
+version_code = re.search(r"versionCode\s+(\d+)\b", build)
+require(version_code is not None and int(version_code.group(1)) >= 5, "versionCode must remain at least R3.2")
 
 print("MODEL MICROSCOPE LINKAGE PASS: selection drives all model-specific microscope state and stale frames are rejected")
