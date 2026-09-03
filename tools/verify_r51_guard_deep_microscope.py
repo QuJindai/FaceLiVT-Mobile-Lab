@@ -12,7 +12,9 @@ def require(condition: bool, message: str) -> None:
 
 main = MAIN.read_text(encoding="utf-8")
 start = main.find("private void handleIdentityGuardProbe(")
-end = main.find("private void renderIdentityGuardPanel()", start)
+helper_start = main.find("private float[] guardEmbeddingWithDeepDiagnostic(", start)
+render_start = main.find("private void renderIdentityGuardPanel()", start)
+end = helper_start if helper_start >= 0 else render_start
 require(start >= 0 and end > start, "cannot isolate handleIdentityGuardProbe")
 guard = main[start:end]
 
@@ -31,7 +33,7 @@ require("guardEmbeddingWithDeepDiagnostic(aligned, variant, guardFocus)" in guar
 require("faceStore.topMatches(variant, embedding, 2)" in guard,
         "Guard matching must use the embedding returned by the diagnostic-aware helper")
 require("recognizerBank.embed(variant, aligned)" not in guard,
-        "Guard path must not bypass the diagnostic-aware helper with direct embed calls")
+        "Guard main loop must not bypass the diagnostic-aware helper with direct embed calls")
 
 helper_start = main.find("private float[] guardEmbeddingWithDeepDiagnostic(")
 helper_end = main.find("private void renderIdentityGuardPanel()", helper_start)
