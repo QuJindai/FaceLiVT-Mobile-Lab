@@ -3,6 +3,7 @@ package com.qujindai.facelivtlab;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.graphics.Matrix;
 import android.os.Bundle;
 import android.os.SystemClock;
@@ -10,10 +11,13 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Size;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -47,6 +51,7 @@ import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -56,6 +61,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQ_CAMERA = 10;
     private static final long FRAME_INTERVAL_MS = 180;
     private static final int ENROLLMENT_SAMPLES = 5;
+    private static final int PROBE_TRAIL_SIZE = 20;
 
     enum Page { ENROLLMENT, RECOGNITION }
 
@@ -92,6 +98,11 @@ public class MainActivity extends AppCompatActivity {
     private EmbeddingScatterView embeddingScatter;
     private TopKBarView topKChart;
     private TrendChartView trendChart;
+    private SeekBar seekThreshold;
+
+    private R31CalibrationPanel calibrationPanel;
+    private ProbeEmbeddingView probeEmbeddingView;
+    private TextView txtProbeEmbeddingInfo;
 
     private final ExecutorService cameraExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean busy = new AtomicBoolean(false);
@@ -121,6 +132,14 @@ public class MainActivity extends AppCompatActivity {
     private EnrollmentArchiveStore archiveStore;
     private ProcessCameraProvider cameraProvider;
 
+    private List<FaceStore.Match> lastDisplayTop = new ArrayList<>();
+    private ModelVariant lastDisplayVariant = ModelVariant.S;
+    private ThresholdCalibrator.Result lastCalibration;
+    private EmbeddingProjector.Model probeProjectionModel;
+    private String probeProjectionKey = "";
+    private final List<float[]> probeTrail = new ArrayList<>();
+    private int lastProbeTrackingId = Integer.MIN_VALUE;
+
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
@@ -136,6 +155,8 @@ public class MainActivity extends AppCompatActivity {
         archiveStore = new EnrollmentArchiveStore(this);
         recognizerBank = new RecognizerBank(getApplicationContext());
         setupUi();
+        installR31Panels();
+        compactCameraStage();
 
         FaceDetectorOptions options = new FaceDetectorOptions.Builder()
                 .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
@@ -145,8 +166,9 @@ public class MainActivity extends AppCompatActivity {
                 .enableTracking()
                 .build();
         detector = FaceDetection.getClient(options);
-        txtResult.setText("R3 已就绪 · 默认进入录入显微镜");
+        txtResult.setText("R3.1 已就绪 · 稳定性与覆盖性分离");
         showPage(Page.ENROLLMENT);
+        refreshCalibration(ModelVariant.S);
         updateActionState();
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
@@ -217,6 +239,7 @@ public class MainActivity extends AppCompatActivity {
         embeddingScatter = findViewById(R.id.embeddingScatter);
         topKChart = findViewById(R.id.topKChart);
         trendChart = findViewById(R.id.trendChart);
+        seekThreshold = findViewById(R.id.seekThreshold);
 
         tabEnrollment.setOnClickListener(v -> showPage(Page.ENROLLMENT));
         tabRecognition.setOnClickListener(v -> showPage(Page.RECOGNITION));
@@ -262,9 +285,14 @@ public class MainActivity extends AppCompatActivity {
         spinnerModel.setSelection(0);
         spinnerModel.setOnItemSelectedListener(new SimpleItemSelectedListener(position -> {
             modelMode = modes[position];
+            lastDisplayVariant = displayVariantForMode();
             clearFusion();
             recognitionTrend.clear();
-            renderRecognitionMicroscope(null, new ArrayList<>(), null, 0, 0, 0, 0, 0, false);
+            lastDisplayTop = new ArrayList<>();
+            if (topKChart != null) topKChart.setResults(lastDisplayTop, threshold);
+            if (trendChart != null) trendChart.setSeries(new float[0], new float[0], threshold);
+            clearProbeProjection();
+            refreshCalibration(lastDisplayVariant);
         }));
 
         ModelVariant[] variants = ModelVariant.values();
@@ -277,13 +305,66 @@ public class MainActivity extends AppCompatActivity {
             renderEnrollmentMicroscope(inspectVariant);
         }));
 
-        SeekBar seek = findViewById(R.id.seekThreshold);
-        updateThreshold(seek.getProgress());
-        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+        updateThreshold(seekThreshold.getProgress());
+        seekThreshold.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) { updateThreshold(progress); }
             @Override public void onStartTrackingTouch(SeekBar seekBar) {}
             @Override public void onStopTrackingTouch(SeekBar seekBar) {}
         });
+    }
+
+    private void installR31Panels() {
+        if (!(pageRecognition instanceof ScrollView)) return;
+        View child = ((ScrollView) pageRecognition).getChildAt(0);
+        if (!(child instanceof LinearLayout)) return;
+        LinearLayout content = (LinearLayout) child;
+
+        calibrationPanel = new R31CalibrationPanel(this);
+        calibrationPanel.setApplyListener(v -> applySuggestedThreshold());
+        LinearLayout.LayoutParams panelLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        panelLp.topMargin = dp(7);
+        int thresholdIndex = content.indexOfChild(seekThreshold);
+        content.addView(calibrationPanel, Math.max(0, thresholdIndex + 1), panelLp);
+
+        TextView title = new TextView(this);
+        title.setText("实时 Probe embedding · 固定 PCA 坐标系");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(14f);
+        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
+
+        txtProbeEmbeddingInfo = new TextView(this);
+        txtProbeEmbeddingInfo.setText("R3.1 录入参考样本后，将当前 Probe 投影到同一固定坐标系。2D 只用于观察。 ");
+        txtProbeEmbeddingInfo.setTextColor(Color.rgb(188, 211, 207));
+        txtProbeEmbeddingInfo.setTextSize(10.5f);
+
+        probeEmbeddingView = new ProbeEmbeddingView(this);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        titleLp.topMargin = dp(8);
+        LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        infoLp.topMargin = dp(2);
+        LinearLayout.LayoutParams plotLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(185));
+        plotLp.topMargin = dp(4);
+
+        int topKIndex = content.indexOfChild(topKChart);
+        int insert = topKIndex >= 0 ? topKIndex + 1 : content.getChildCount();
+        content.addView(title, insert++, titleLp);
+        content.addView(txtProbeEmbeddingInfo, insert++, infoLp);
+        content.addView(probeEmbeddingView, insert, plotLp);
+    }
+
+    private void compactCameraStage() {
+        if (previewView == null || previewView.getParent() == null) return;
+        View parent = (View) previewView.getParent();
+        ViewGroup.LayoutParams params = parent.getLayoutParams();
+        if (params != null) {
+            params.height = dp(205);
+            parent.setLayoutParams(params);
+            parent.requestLayout();
+        }
     }
 
     private void setProfile(int position, DegradationProfile[] profiles, Spinner peer) {
@@ -302,6 +383,7 @@ public class MainActivity extends AppCompatActivity {
         tabRecognition.setBackgroundResource(page == Page.RECOGNITION ? R.drawable.r3_tab_active : R.drawable.r3_tab_inactive);
         clearFusion();
         recognitionTrend.clear();
+        if (page == Page.RECOGNITION) refreshCalibration(displayVariantForMode());
         updateActionState();
     }
 
@@ -314,11 +396,11 @@ public class MainActivity extends AppCompatActivity {
 
         btnEnroll.setEnabled(cameraReady && hasName && !enrolling && currentPage == Page.ENROLLMENT);
         btnSwitch.setEnabled(cameraReady);
-        btnExport.setEnabled(sessionLogger.size() > 0);
+        btnExport.setEnabled(csvRows > 0);
         tabRecognition.setEnabled(!enrolling);
 
         if (enrolling) {
-            btnEnroll.setText("采集中 " + (ENROLLMENT_SAMPLES - enrollmentRemaining.get()) + "/" + ENROLLMENT_SAMPLES);
+            btnEnroll.setText("合格样本 " + (ENROLLMENT_SAMPLES - enrollmentRemaining.get()) + "/" + ENROLLMENT_SAMPLES);
         } else {
             btnEnroll.setText("开始质量录入 ×5");
         }
@@ -329,18 +411,28 @@ public class MainActivity extends AppCompatActivity {
         } else if (!cameraReady) {
             txtActionHint.setText("状态：相机初始化中");
         } else if (enrolling) {
-            txtActionHint.setText("录入显微镜：" + enrollmentName + " · 还需 " + enrollmentRemaining.get() + " 帧，完成后才构建模板");
+            txtActionHint.setText("录入显微镜：还需 " + enrollmentRemaining.get() + " 帧 · 只统计硬门通过且有差异的样本");
         } else if (currentPage == Page.ENROLLMENT) {
-            txtActionHint.setText(hasName ? "录入显微镜：可开始 5 帧质量建档" : "录入显微镜：输入姓名/编号后开始建档");
+            txtActionHint.setText(hasName ? "录入显微镜：硬门控 + 稳定性 + 覆盖性" : "录入显微镜：输入姓名/编号后开始建档");
         } else {
-            txtActionHint.setText(csvRows > 0 ? "检测显微镜：已记录 " + csvRows + " 条证据，可导出 CSV" : "检测显微镜：实时展示像素→决策完整链");
+            txtActionHint.setText(csvRows > 0 ? "检测显微镜：已记录 " + csvRows + " 条证据 · 可导出 CSV" : "检测显微镜：像素→512D→决策→经验标定");
         }
     }
 
     private void updateThreshold(int progress) {
         threshold = 0.20f + progress * 0.006f;
-        txtThreshold.setText(String.format(Locale.US, "身份阈值 %.2f · 质量门 Q≥%.2f", threshold, FaceQuality.QUALITY_GATE));
-        if (topKChart != null) topKChart.setResults(new ArrayList<>(), threshold);
+        txtThreshold.setText(String.format(Locale.US, "身份阈值 %.3f · Probe硬门 Q≥%.2f", threshold, FaceQuality.QUALITY_GATE));
+        if (topKChart != null) topKChart.setResults(lastDisplayTop, threshold);
+        if (trendChart != null) trendChart.setSeries(recognitionTrend.similarities(), recognitionTrend.qualities(), threshold);
+    }
+
+    private void applySuggestedThreshold() {
+        ThresholdCalibrator.Result result = lastCalibration;
+        if (result == null || !result.available || !Float.isFinite(result.suggestedThreshold)) return;
+        int progress = Math.round((result.suggestedThreshold - 0.20f) / 0.006f);
+        progress = Math.max(0, Math.min(100, progress));
+        seekThreshold.setProgress(progress);
+        Toast.makeText(this, String.format(Locale.US, "已采用经验阈值 %.3f", threshold), Toast.LENGTH_SHORT).show();
     }
 
     private void beginEnrollment() {
@@ -355,10 +447,10 @@ public class MainActivity extends AppCompatActivity {
         for (ImageView image : sampleFaces) image.setImageDrawable(null);
         similarityMatrix.setMatrix(null);
         embeddingScatter.setProjection(null, 0);
-        txtEnrollmentArchive.setText("正在建立 " + name + " 的质量档案……每帧记录图像质量、姿态、关键点和 XS/S/M embedding。\n本轮摄像头档位：" + enrollmentProfileAtStart);
-        txtEnrollmentFormula.setText("公式链等待 5 帧数值代入……");
+        txtEnrollmentArchive.setText("正在建立 " + name + " 的 R3.1 质量档案。\n先过像素硬门，再筛掉近重复帧；5 张样本同时追求稳定性与覆盖性。\n本轮档位：" + enrollmentProfileAtStart);
+        txtEnrollmentFormula.setText("等待合格且有差异的样本……");
         clearFusion();
-        txtResult.setText("质量录入 " + name + " · 还需 5 帧");
+        txtResult.setText("R3.1 录入 · 等待第 1 张合格差异帧");
         updateActionState();
     }
 
@@ -366,7 +458,7 @@ public class MainActivity extends AppCompatActivity {
         if (sessionLogger.size() == 0) { Toast.makeText(this, "暂无检测记录可导出", Toast.LENGTH_SHORT).show(); return; }
         try {
             File file = sessionLogger.exportCsv(this);
-            txtResult.setText("显微镜 CSV 已导出 · " + sessionLogger.size() + " 条\n" + file.getAbsolutePath());
+            txtResult.setText("R3.1 显微镜 CSV 已导出 · " + sessionLogger.size() + " 条\n" + file.getAbsolutePath());
         } catch (Exception e) {
             txtResult.setText("CSV 导出失败: " + e.getClass().getSimpleName());
         }
@@ -462,8 +554,9 @@ public class MainActivity extends AppCompatActivity {
                 txtResult.setText("未检测到人脸");
                 txtMetrics.setText(metricLine(sourceW, sourceH, degraded, detectorBitmap, active, 0, 0, detectMs));
                 txtPerf.setText(thermalLine(thermal));
-                if (currentPage == Page.ENROLLMENT) txtEnrollmentLiveQuality.setText("实时质量：未检测到人脸");
-                else {
+                if (currentPage == Page.ENROLLMENT) {
+                    txtEnrollmentLiveQuality.setText("实时质量：未检测到人脸");
+                } else {
                     txtRecognitionQuality.setText("Probe 质量：未检测到人脸");
                     faceOverlay.clear();
                     txtPipeline.setText("frame → degrade → detect " + detectMs + "ms → 无人脸，链路在检测阶段停止");
@@ -487,7 +580,8 @@ public class MainActivity extends AppCompatActivity {
             FaceQuality.Snapshot quality = FaceQuality.evaluate(aligned, face, detectorBitmap.getWidth(), detectorBitmap.getHeight());
 
             if (currentPage == Page.ENROLLMENT) {
-                runOnUiThread(() -> txtEnrollmentLiveQuality.setText("实时质量 · " + quality.compactLine()));
+                runOnUiThread(() -> txtEnrollmentLiveQuality.setText(
+                        "实时质量 · " + quality.compactLine() + "\n入库硬门：" + quality.enrollmentGateReason()));
                 if (enrollmentRemaining.get() > 0 && enrollmentName != null) {
                     handleEnrollment(aligned, quality, degraded, detectorBitmap, sourceW, sourceH,
                             active, faceW, faceH, detectMs, alignMs, thermal);
@@ -495,7 +589,7 @@ public class MainActivity extends AppCompatActivity {
                     runOnUiThread(() -> {
                         txtResult.setText("录入显微镜 · 已找到人脸，等待开始建档");
                         txtMetrics.setText(metricLine(sourceW, sourceH, degraded, detectorBitmap, active, faceW, faceH, detectMs));
-                        txtPerf.setText("align " + alignMs + "ms | " + thermalLine(thermal));
+                        txtPerf.setText("本帧 detect " + detectMs + " / align " + alignMs + "ms\n" + thermalLine(thermal));
                     });
                 }
             } else {
@@ -503,7 +597,7 @@ public class MainActivity extends AppCompatActivity {
                     imgProbeFrame.setImageBitmap(detectorBitmap);
                     imgAlignedProbe.setImageBitmap(aligned);
                     faceOverlay.setFace(face, detectorBitmap.getWidth(), detectorBitmap.getHeight());
-                    txtRecognitionQuality.setText(quality.compactLine() + "\n质量门：" + (quality.passesProbeGate() ? "PASS" : "FAIL") + " (Q≥0.35)");
+                    txtRecognitionQuality.setText(quality.compactLine() + "\nProbe硬门：" + quality.probeGateReason());
                 });
                 handleRecognition(aligned, trackingId, quality, degraded, detectorBitmap,
                         sourceW, sourceH, active, faceW, faceH, detectMs, alignMs, thermal);
@@ -518,27 +612,49 @@ public class MainActivity extends AppCompatActivity {
                                   DegradationProfile active, int faceW, int faceH,
                                   long detectMs, long alignMs, ThermalProbe.Snapshot thermal) throws Exception {
         String name = enrollmentName;
+        if (!quality.passesEnrollmentGate()) {
+            runOnUiThread(() -> {
+                txtResult.setText("本帧未计入 · 入库硬门 FAIL\n" + quality.enrollmentGateReason());
+                txtMetrics.setText(metricLine(sourceW, sourceH, degraded, detectorBitmap, active, faceW, faceH, detectMs));
+                txtPerf.setText("本帧 detect " + detectMs + " / align " + alignMs + "ms\n" + thermalLine(thermal));
+            });
+            return;
+        }
+
         EnumMap<ModelVariant, RecognizerBank.TimedEmbedding> all = recognizerBank.embedAll(aligned);
+        RecognizerBank.TimedEmbedding sEmbedding = all.get(ModelVariant.S);
+        if (sEmbedding == null || !enrollmentSession.isNovelCandidate(ModelVariant.S, sEmbedding.embedding, quality)) {
+            runOnUiThread(() -> {
+                txtResult.setText("本帧未计入 · 与已采样帧过于重复\n请轻微左右转头/抬低头，让模板获得覆盖性");
+                txtPerf.setText("硬门 PASS · 差异门 WAIT\n" + thermalLine(thermal));
+            });
+            return;
+        }
+
         StringBuilder timings = new StringBuilder();
         for (ModelVariant variant : ModelVariant.values()) {
             RecognizerBank.TimedEmbedding te = all.get(variant);
             enrollmentSession.add(variant, te.embedding, quality);
-            performance.get(variant).add(detectMs, te.inferMs, detectMs + alignMs + te.inferMs);
+            long total = detectMs + alignMs + te.inferMs;
+            performance.get(variant).add(detectMs, alignMs, te.inferMs, 0L, total);
             if (timings.length() > 0) timings.append(" | ");
             timings.append(variant.storageKey).append(' ').append(te.inferMs).append("ms");
         }
 
-        int left = enrollmentRemaining.decrementAndGet();
-        int index = ENROLLMENT_SAMPLES - left - 1;
+        int acceptedCount = enrollmentSession.size(ModelVariant.S);
+        int left = Math.max(0, ENROLLMENT_SAMPLES - acceptedCount);
+        enrollmentRemaining.set(left);
+        int index = acceptedCount - 1;
         Bitmap thumb = aligned.copy(Bitmap.Config.ARGB_8888, false);
         runOnUiThread(() -> {
             if (index >= 0 && index < sampleFaces.length) sampleFaces[index].setImageBitmap(thumb);
-            txtResult.setText(left > 0 ? "质量录入 " + name + " · 还需 " + left + " 帧" : "5 帧采集完成 · 正在构建质量模板");
+            txtResult.setText(left > 0
+                    ? ("已收合格差异帧 " + acceptedCount + "/5 · 还需 " + left + " 帧")
+                    : "5 张合格差异帧完成 · 正在构建三模型模板");
             txtMetrics.setText(metricLine(sourceW, sourceH, degraded, detectorBitmap, active, faceW, faceH, detectMs));
-            txtPerf.setText("align " + alignMs + "ms | " + timings + "\n" + thermalLine(thermal));
+            txtPerf.setText("本帧 detect " + detectMs + " / align " + alignMs + "ms | " + timings + "\n" + thermalLine(thermal));
             updateActionState();
         });
-
         if (left == 0) finalizeEnrollment(name);
     }
 
@@ -546,30 +662,35 @@ public class MainActivity extends AppCompatActivity {
         boolean passAll = true;
         StringBuilder archive = new StringBuilder();
         archive.append("身份：").append(name).append('\n');
-        archive.append("录入档位：").append(enrollmentProfileAtStart).append(" · 样本 ").append(ENROLLMENT_SAMPLES).append(" 帧\n");
+        archive.append("录入档位：").append(enrollmentProfileAtStart).append(" · 合格差异样本 ").append(ENROLLMENT_SAMPLES).append(" 帧\n");
         EnrollmentSession.Summary qualitySource = enrollmentSession.summary(ModelVariant.S);
         for (int i = 0; i < qualitySource.qualities.size(); i++) {
             FaceQuality.Snapshot q = qualitySource.qualities.get(i);
             archive.append(String.format(Locale.US,
-                    "S%d  Q %.2f | 清晰 %.2f 光照 %.2f 对比 %.2f 姿态 %.2f 点 %.2f 尺寸 %.2f | Y/P/R %.1f/%.1f/%.1f°\n",
+                    "S%d  Q %.2f | 清晰 %.2f 光照 %.2f 对比 %.2f 姿态 %.2f 点 %.2f 尺寸 %.2f | Y/P/R %.1f/%.1f/%.1f° | Hard %s\n",
                     i+1, q.composite, q.sharpness, q.brightness, q.contrast, q.pose, q.landmarks, q.size,
-                    q.yaw, q.pitch, q.roll));
+                    q.yaw, q.pitch, q.roll, q.enrollmentGateReason()));
         }
-        archive.append("\n模型模板质量：\n");
+        archive.append("\n模型模板质量：稳定性 ≠ 覆盖性\n");
         for (ModelVariant variant : ModelVariant.values()) {
             EnrollmentSession.Summary summary = enrollmentSession.summary(variant);
             passAll &= summary.passesEnrollment();
             archive.append(String.format(Locale.US,
-                    "%s  Qavg %.3f · Sstable %.4f · D %.4f · %s\n",
+                    "%s  Qavg %.3f · Sstable %.4f · D %.4f · Cover %.3f (Emb %.3f / Pose %.3f) · %s\n",
                     variant.storageKey, summary.averageQuality, summary.stability, summary.dispersion,
+                    summary.coverage, summary.embeddingCoverage, summary.poseCoverage,
                     summary.passesEnrollment() ? "PASS" : "FAIL"));
         }
-        archive.append(passAll ? "\n结论：PASS · 三模型质量加权模板已入库" : "\n结论：FAIL · 本轮档案保留，但不覆盖已有模板；建议重录");
+        archive.append(passAll
+                ? "\n结论：PASS · 三模型质量加权模板与 R3.1 参考样本已入库"
+                : "\n结论：FAIL · 档案保留但不覆盖已有模板；稳定性或覆盖性不足");
 
         if (passAll) {
             for (ModelVariant variant : ModelVariant.values()) {
                 EnrollmentSession.Summary summary = enrollmentSession.summary(variant);
                 faceStore.replaceTemplate(name, variant, summary.centroid, summary.sampleCount);
+                archiveStore.saveReference(name, variant,
+                        new EnrollmentReferenceCodec.Record(enrollmentSession.embeddings(variant), summary.sampleToCentroid));
             }
         }
         archiveStore.save(name, archive.toString());
@@ -578,8 +699,9 @@ public class MainActivity extends AppCompatActivity {
         final boolean finalPassAll = passAll;
         runOnUiThread(() -> {
             txtEnrollmentArchive.setText(archive.toString());
-            txtResult.setText(finalPassAll ? "录入完成 · " + name + " · 模板已入库" : "录入质量未达门槛 · 已保留档案，模板未覆盖");
+            txtResult.setText(finalPassAll ? "R3.1 录入完成 · " + name + " · 模板已入库" : "录入未达门槛 · 模板未覆盖");
             renderEnrollmentMicroscope(inspectVariant);
+            refreshCalibration(displayVariantForMode());
             updateActionState();
         });
     }
@@ -597,15 +719,17 @@ public class MainActivity extends AppCompatActivity {
         }
         txtEnrollmentFormula.setText(String.format(Locale.US,
                 "公式链 · %s\n" +
+                "HardGate_i = Qsharp≥.28 ∧ Qlight≥.28 ∧ Qcontrast≥.25 ∧ Qpose≥.55 ∧ Qlandmark≥.80 ∧ Qsize≥.45\n" +
                 "Qi=.25Qsharp+.15Qlight+.10Qcontrast+.20Qpose+.15Qlandmark+.15Qsize\n" +
-                "当前 Qavg=%.3f · αi=max(Qi,.05)\n" +
+                "Qavg=%.3f · αi=max(Qi,.05)\n" +
                 "c=normalize(Σαifi/Σαi) → %dD 模板中心\n" +
                 "cos(fi,c): %s\n" +
-                "Sstable=mean(cos(fi,c))=%.4f\n" +
-                "D=mean(1-cos(fi,c))=%.4f\n" +
-                "Pass=(N=%d≥5) ∧ (Qavg %.3f≥.55) ∧ (Sstable %.4f≥.70) ⇒ %s",
+                "Sstable=mean(cos(fi,c))=%.4f · D=%.4f\n" +
+                "Cemb=%.3f · Cpose=%.3f · Coverage=sqrt(Cemb×Cpose)=%.3f\n" +
+                "Pass=(N=%d≥5) ∧ (Qavg %.3f≥.55) ∧ (Sstable %.4f≥.70) ∧ (Coverage %.3f≥%.2f) ∧ HardGate ⇒ %s",
                 variant.storageKey, s.averageQuality, s.centroid.length, cosines,
-                s.stability, s.dispersion, s.sampleCount, s.averageQuality, s.stability,
+                s.stability, s.dispersion, s.embeddingCoverage, s.poseCoverage, s.coverage,
+                s.sampleCount, s.averageQuality, s.stability, s.coverage, EnrollmentSession.MIN_COVERAGE,
                 s.passesEnrollment() ? "PASS" : "FAIL"));
     }
 
@@ -613,69 +737,81 @@ public class MainActivity extends AppCompatActivity {
                                    Bitmap degraded, Bitmap detectorBitmap, int sourceW, int sourceH,
                                    DegradationProfile active, int faceW, int faceH,
                                    long detectMs, long alignMs, ThermalProbe.Snapshot thermal) throws Exception {
+        if (trackingId != lastProbeTrackingId) {
+            probeTrail.clear();
+            lastProbeTrackingId = trackingId;
+        }
         StringBuilder results = new StringBuilder();
-        StringBuilder perfText = new StringBuilder();
         long timestamp = System.currentTimeMillis();
         ModelVariant displayVariant = displayVariantForMode();
         List<FaceStore.Match> displayTop = new ArrayList<>();
-        long displayInfer = 0L, displayMatch = 0L;
-        int displayFused = 0;
-        boolean displayAccepted = false;
+        RecognitionDecision displayDecision = null;
+        float[] displayFusedEmbedding = null;
+        long displayInfer = 0L, displayMatch = 0L, displayTotal = 0L;
+        int displayFusedFrames = 0;
 
         for (ModelVariant variant : modelMode.variants()) {
             RecognizerBank.TimedEmbedding te = recognizerBank.embed(variant, aligned);
-            float[] fused = fusion.get(variant).push(trackingId, te.embedding);
+            float[] fusedEmbedding = fusion.get(variant).push(trackingId, te.embedding);
             int fusedFrames = fusion.get(variant).size();
             long matchStart = SystemClock.elapsedRealtimeNanos();
-            List<FaceStore.Match> top = faceStore.topMatches(variant, fused, 3);
+            List<FaceStore.Match> top = faceStore.topMatches(variant, fusedEmbedding, 3);
             long matchMs = elapsedMs(matchStart);
-            FaceStore.Match top1 = top.isEmpty() ? null : top.get(0);
-            FaceStore.Match top2 = top.size() > 1 ? top.get(1) : null;
-            float similarity = top1 == null ? 0f : top1.similarity;
-            float second = top2 == null ? 0f : top2.similarity;
-            float margin = top1 == null ? 0f : similarity - second;
-            boolean accepted = top1 != null && similarity >= threshold && quality.composite >= FaceQuality.QUALITY_GATE;
+            RecognitionDecision decision = RecognitionDecision.from(top, threshold, quality);
+            float similarity = Float.isFinite(decision.top1Score) ? decision.top1Score : 0f;
             long totalMs = detectMs + alignMs + te.inferMs + matchMs;
-            performance.get(variant).add(detectMs, te.inferMs, totalMs);
+            performance.get(variant).add(detectMs, alignMs, te.inferMs, matchMs, totalMs);
             sessionLogger.addMicroscope(timestamp, active.label, variant,
                     sourceW, sourceH, degraded.getWidth(), degraded.getHeight(),
                     detectorBitmap.getWidth(), detectorBitmap.getHeight(), faceW, faceH,
-                    quality, top1 == null ? "" : top1.name, top2 == null ? "" : top2.name,
-                    similarity, margin, threshold, accepted, fusedFrames,
+                    quality, decision.top1Name, decision.top2Name,
+                    similarity, decision.margin, threshold, decision.accepted, fusedFrames,
                     detectMs, alignMs, te.inferMs, matchMs, totalMs, thermal);
 
             if (results.length() > 0) results.append('\n');
             results.append(variant.storageKey).append("  ");
-            if (top1 == null) results.append("无模板");
-            else results.append(String.format(Locale.US, "%s %.3f · margin %.3f · %s [%df]",
-                    accepted ? top1.name : "UNKNOWN", similarity, margin, accepted ? "ACCEPT" : "REJECT", fusedFrames));
-
-            PerformanceWindow window = performance.get(variant);
-            if (perfText.length() > 0) perfText.append(" | ");
-            perfText.append(String.format(Locale.US, "%s infer %.1fms total %.1fms",
-                    variant.storageKey, window.avgInferMs(), window.avgTotalMs()));
+            if (decision.top1Name.isEmpty()) {
+                results.append("无模板");
+            } else {
+                results.append(String.format(Locale.US, "%s %.3f · margin %s · %s [%df]",
+                        decision.accepted ? decision.top1Name : "UNKNOWN",
+                        decision.top1Score, decision.marginLabel(),
+                        decision.accepted ? "ACCEPT" : "REJECT", fusedFrames));
+            }
 
             if (variant == displayVariant) {
                 displayTop = top;
+                displayDecision = decision;
+                displayFusedEmbedding = fusedEmbedding.clone();
                 displayInfer = te.inferMs;
                 displayMatch = matchMs;
-                displayFused = fusedFrames;
-                displayAccepted = accepted;
+                displayTotal = totalMs;
+                displayFusedFrames = fusedFrames;
             }
         }
 
-        List<FaceStore.Match> finalDisplayTop = displayTop;
-        long finalDisplayInfer = displayInfer;
-        long finalDisplayMatch = displayMatch;
-        int finalDisplayFused = displayFused;
-        boolean finalDisplayAccepted = displayAccepted;
+        List<FaceStore.Match> finalTop = displayTop;
+        RecognitionDecision finalDecision = displayDecision;
+        float[] finalFusedEmbedding = displayFusedEmbedding;
+        long finalInfer = displayInfer;
+        long finalMatch = displayMatch;
+        long finalTotal = displayTotal;
+        int finalFusedFrames = displayFusedFrames;
         runOnUiThread(() -> {
+            lastDisplayTop = finalTop;
+            lastDisplayVariant = displayVariant;
             txtResult.setText(results.toString());
             txtMetrics.setText(metricLine(sourceW, sourceH, degraded, detectorBitmap, active, faceW, faceH, detectMs)
-                    + " | Tid=" + String.format(Locale.US,"%.2f",threshold) + " | 库=" + faceStore.identityCount() + " | CSV=" + sessionLogger.size());
-            txtPerf.setText(perfText + "\n" + thermalLine(thermal));
-            renderRecognitionMicroscope(displayVariant, finalDisplayTop, quality, finalDisplayFused,
-                    detectMs, alignMs, finalDisplayInfer, finalDisplayMatch, finalDisplayAccepted);
+                    + " | Tid=" + String.format(Locale.US,"%.3f",threshold) + " | 库=" + faceStore.identityCount() + " | CSV=" + sessionLogger.size());
+            PerformanceWindow window = performance.get(displayVariant);
+            txtPerf.setText(String.format(Locale.US,
+                    "本帧 %s  detect %d / align %d / infer %d / match %d / total %d ms\n" +
+                    "30帧均值  detect %.1f / align %.1f / infer %.1f / match %.1f / total %.1f ms\n%s",
+                    displayVariant.storageKey, detectMs, alignMs, finalInfer, finalMatch, finalTotal,
+                    window.avgDetectMs(), window.avgAlignMs(), window.avgInferMs(), window.avgMatchMs(), window.avgTotalMs(),
+                    thermalLine(thermal)));
+            renderRecognitionMicroscope(displayVariant, finalTop, quality, finalFusedFrames,
+                    detectMs, alignMs, finalInfer, finalMatch, finalDecision, finalFusedEmbedding);
             updateActionState();
         });
     }
@@ -683,39 +819,110 @@ public class MainActivity extends AppCompatActivity {
     private void renderRecognitionMicroscope(ModelVariant variant, List<FaceStore.Match> top,
                                              FaceQuality.Snapshot quality, int fusedFrames,
                                              long detectMs, long alignMs, long inferMs, long matchMs,
-                                             boolean accepted) {
+                                             RecognitionDecision decision, float[] fusedEmbedding) {
         if (quality == null) {
             topKChart.setResults(top, threshold);
             trendChart.setSeries(recognitionTrend.similarities(), recognitionTrend.qualities(), threshold);
             return;
         }
-        float top1 = top.isEmpty() ? 0f : top.get(0).similarity;
-        float top2 = top.size() > 1 ? top.get(1).similarity : 0f;
-        float margin = top.isEmpty() ? 0f : top1 - top2;
-        String top1Name = top.isEmpty() ? "无模板" : top.get(0).name;
-        String top2Name = top.size() > 1 ? top.get(1).name : "—";
-        recognitionTrend.add(top1, quality.composite);
+        float trendScore = decision != null && Float.isFinite(decision.top1Score) ? decision.top1Score : 0f;
+        recognitionTrend.add(trendScore, quality.composite);
         topKChart.setResults(top, threshold);
         trendChart.setSeries(recognitionTrend.similarities(), recognitionTrend.qualities(), threshold);
         long total = detectMs + alignMs + inferMs + matchMs;
+        boolean accepted = decision != null && decision.accepted;
         txtPipeline.setText(String.format(Locale.US,
-                "frame → degrade(%s) → detect %dms → 5pt align %dms → quality Q=%.3f → embed %s %dms → temporal fusion %d/5 → Top-K %dms → %s\n总链路≈%dms",
-                profile.label, detectMs, alignMs, quality.composite,
+                "frame → degrade(%s) → detect %dms → 5pt align %dms → ProbeHardGate %s → embed %s %dms → fusion %d/5 → Top-K %dms → %s\n本帧链路=%dms",
+                profile.label, detectMs, alignMs, quality.passesProbeGate() ? "PASS" : "FAIL",
                 variant == null ? "?" : variant.storageKey, inferMs, fusedFrames, matchMs,
                 accepted ? "ACCEPT" : "REJECT", total));
-        txtRecognitionFormula.setText(String.format(Locale.US,
-                "公式链 · %s\n" +
-                "sk=cos(fprobe,ck) → Top1 %s=%.4f · Top2 %s=%.4f\n" +
-                "margin = sTop1 - sTop2 = %.4f\n" +
-                "k*=argmax(sk) → %s\n" +
-                "Accept=(%.4f≥Tid %.2f) ∧ (Qprobe %.3f≥%.2f)\n" +
-                "身份门=%s · 质量门=%s ⇒ %s",
-                variant == null ? "?" : variant.storageKey,
-                top1Name, top1, top2Name, top2, margin, top1Name,
-                top1, threshold, quality.composite, FaceQuality.QUALITY_GATE,
-                top1 >= threshold ? "PASS" : "FAIL",
-                quality.composite >= FaceQuality.QUALITY_GATE ? "PASS" : "FAIL",
-                accepted ? "ACCEPT" : "REJECT"));
+
+        String top1Name = decision == null || decision.top1Name.isEmpty() ? "无模板" : decision.top1Name;
+        String top1Score = decision == null || !Float.isFinite(decision.top1Score)
+                ? "N/A" : String.format(Locale.US,"%.4f",decision.top1Score);
+        String top2Line;
+        if (decision != null && decision.marginAvailable) {
+            top2Line = String.format(Locale.US, "Top2 %s=%.4f · margin = sTop1-sTop2 = %.4f",
+                    decision.top2Name, decision.top2Score, decision.margin);
+        } else {
+            top2Line = "Top2=无 · margin=N/A（候选不足，不能据此评价 1:N 区分度）";
+        }
+        txtRecognitionFormula.setText(
+                "公式链 · " + (variant == null ? "?" : variant.storageKey) + "\n" +
+                "sk=cos(fprobe,ck) → Top1 " + top1Name + "=" + top1Score + "\n" +
+                top2Line + "\n" +
+                "k*=argmax(sk) → " + top1Name + "\n" +
+                "Qprobe=" + String.format(Locale.US,"%.3f",quality.composite) +
+                " · ProbeHardGate=" + quality.probeGateReason() + "\n" +
+                "Accept=(sTop1≥Tid " + String.format(Locale.US,"%.3f",threshold) + ") ∧ ProbeHardGate\n" +
+                "身份门=" + (decision != null && decision.identityPass ? "PASS" : "FAIL") +
+                " · 质量门=" + (decision != null && decision.qualityPass ? "PASS" : "FAIL") +
+                " ⇒ " + (accepted ? "ACCEPT" : "REJECT"));
+
+        renderProbeProjection(variant, decision, fusedEmbedding);
+    }
+
+    private void renderProbeProjection(ModelVariant variant, RecognitionDecision decision, float[] fusedEmbedding) {
+        if (probeEmbeddingView == null || txtProbeEmbeddingInfo == null) return;
+        if (variant == null || decision == null || decision.top1Name.isEmpty() || fusedEmbedding == null) {
+            probeEmbeddingView.clearData();
+            txtProbeEmbeddingInfo.setText("暂无可投影的 Top1 模板。最终身份判定始终使用原始 512D cosine。 ");
+            return;
+        }
+        EnrollmentReferenceCodec.Record record = archiveStore.loadReference(decision.top1Name, variant);
+        float[] centroid = faceStore.template(decision.top1Name, variant);
+        if (record == null || record.embeddings.size() < 2 || centroid == null) {
+            probeEmbeddingView.clearData();
+            txtProbeEmbeddingInfo.setText("Top1 " + decision.top1Name + " 是旧模板：需用 R3.1 重新录入后才能显示固定 PCA Probe 轨迹；识别本身仍可继续。 ");
+            return;
+        }
+        String key = variant.storageKey + "/" + decision.top1Name;
+        if (!key.equals(probeProjectionKey) || probeProjectionModel == null) {
+            List<float[]> fit = new ArrayList<>();
+            for (float[] e : record.embeddings) fit.add(e.clone());
+            fit.add(centroid.clone());
+            probeProjectionModel = EmbeddingProjector.fit(fit);
+            probeProjectionKey = key;
+            probeTrail.clear();
+        }
+        float[] probe = probeProjectionModel.project(fusedEmbedding);
+        probeTrail.add(probe.clone());
+        while (probeTrail.size() > PROBE_TRAIL_SIZE) probeTrail.remove(0);
+        float[] ev = probeProjectionModel.explainedVarianceRatio();
+        probeEmbeddingView.setData(probeProjectionModel.trainingProjection(), record.embeddings.size(), probe, probeTrail, ev);
+        txtProbeEmbeddingInfo.setText(String.format(Locale.US,
+                "Top1 %s · PC1 %.1f%% + PC2 %.1f%% · 粉色=当前Probe，蓝线=轨迹。2D仅观察；最终判定仍使用512D cosine。",
+                decision.top1Name, ev[0]*100f, ev[1]*100f));
+    }
+
+    private void refreshCalibration(ModelVariant variant) {
+        if (calibrationPanel == null || faceStore == null || archiveStore == null || variant == null) return;
+        Set<String> names = faceStore.identityNames();
+        List<String> calibratedNames = new ArrayList<>();
+        List<Float> genuine = new ArrayList<>();
+        for (String name : names) {
+            float[] template = faceStore.template(name, variant);
+            EnrollmentReferenceCodec.Record record = archiveStore.loadReference(name, variant);
+            if (template == null || record == null || record.embeddings.isEmpty() || record.genuineScores.length == 0) continue;
+            calibratedNames.add(name);
+            for (float score : record.genuineScores) if (Float.isFinite(score)) genuine.add(score);
+        }
+        List<Float> impostor = new ArrayList<>();
+        for (int i=0;i<calibratedNames.size();i++) {
+            float[] a = faceStore.template(calibratedNames.get(i), variant);
+            for (int j=i+1;j<calibratedNames.size();j++) {
+                float[] b = faceStore.template(calibratedNames.get(j), variant);
+                if (a != null && b != null && a.length == b.length) impostor.add(VectorMath.cosine(a,b));
+            }
+        }
+        lastCalibration = ThresholdCalibrator.calibrate(calibratedNames.size(), toArray(genuine), toArray(impostor));
+        calibrationPanel.setResult(variant, lastCalibration);
+    }
+
+    private static float[] toArray(List<Float> values) {
+        float[] out = new float[values.size()];
+        for (int i=0;i<values.size();i++) out[i] = values.get(i);
+        return out;
     }
 
     private ModelVariant displayVariantForMode() {
@@ -726,6 +933,17 @@ public class MainActivity extends AppCompatActivity {
 
     private void clearFusion() {
         for (TemporalEmbeddingBuffer buffer : fusion.values()) buffer.clear();
+        lastProbeTrackingId = Integer.MIN_VALUE;
+        probeTrail.clear();
+    }
+
+    private void clearProbeProjection() {
+        probeProjectionModel = null;
+        probeProjectionKey = "";
+        probeTrail.clear();
+        lastProbeTrackingId = Integer.MIN_VALUE;
+        if (probeEmbeddingView != null) probeEmbeddingView.clearData();
+        if (txtProbeEmbeddingInfo != null) txtProbeEmbeddingInfo.setText("等待实时 Probe 与 R3.1 参考模板进入同一固定 PCA 坐标系。 ");
     }
 
     private static String metricLine(int sourceW, int sourceH, Bitmap degraded, Bitmap detectorBitmap,
@@ -741,6 +959,10 @@ public class MainActivity extends AppCompatActivity {
     private static String thermalLine(ThermalProbe.Snapshot thermal) {
         String battery = Float.isNaN(thermal.batteryC) ? "N/A" : String.format(Locale.US, "%.1f°C", thermal.batteryC);
         return "电池 " + battery + " | Thermal " + thermal.thermalLabel;
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private static long elapsedMs(long startNanos) {
