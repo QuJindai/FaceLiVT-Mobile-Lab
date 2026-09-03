@@ -6,11 +6,28 @@ import android.graphics.Color;
 import com.google.mlkit.vision.face.Face;
 import com.google.mlkit.vision.face.FaceLandmark;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 /** Human-readable quality microscope for an aligned face sample. */
 public final class FaceQuality {
     public static final float QUALITY_GATE = 0.35f;
+
+    public static final float PROBE_MIN_SHARPNESS = 0.15f;
+    public static final float PROBE_MIN_LIGHT = 0.15f;
+    public static final float PROBE_MIN_CONTRAST = 0.15f;
+    public static final float PROBE_MIN_POSE = 0.35f;
+    public static final float PROBE_MIN_LANDMARKS = 0.60f;
+    public static final float PROBE_MIN_SIZE = 0.20f;
+
+    public static final float ENROLL_MIN_COMPOSITE = 0.55f;
+    public static final float ENROLL_MIN_SHARPNESS = 0.28f;
+    public static final float ENROLL_MIN_LIGHT = 0.28f;
+    public static final float ENROLL_MIN_CONTRAST = 0.25f;
+    public static final float ENROLL_MIN_POSE = 0.55f;
+    public static final float ENROLL_MIN_LANDMARKS = 0.80f;
+    public static final float ENROLL_MIN_SIZE = 0.45f;
 
     public static final class Snapshot {
         public final float sharpness;
@@ -48,7 +65,63 @@ public final class FaceQuality {
                     yaw, pitch, roll);
         }
 
-        public boolean passesProbeGate() { return composite >= QUALITY_GATE; }
+        /** Recognition remains deliberately tolerant of cheap-camera images, but catastrophic inputs cannot pass on Q alone. */
+        public boolean passesProbeGate() {
+            return composite >= QUALITY_GATE &&
+                    sharpness >= PROBE_MIN_SHARPNESS &&
+                    brightness >= PROBE_MIN_LIGHT &&
+                    contrast >= PROBE_MIN_CONTRAST &&
+                    pose >= PROBE_MIN_POSE &&
+                    landmarks >= PROBE_MIN_LANDMARKS &&
+                    size >= PROBE_MIN_SIZE;
+        }
+
+        public String probeGateReason() {
+            return gateReason(false);
+        }
+
+        /** Enrollment is intentionally stricter than recognition so good geometry cannot rescue poor source pixels. */
+        public boolean passesEnrollmentGate() {
+            return composite >= ENROLL_MIN_COMPOSITE &&
+                    sharpness >= ENROLL_MIN_SHARPNESS &&
+                    brightness >= ENROLL_MIN_LIGHT &&
+                    contrast >= ENROLL_MIN_CONTRAST &&
+                    pose >= ENROLL_MIN_POSE &&
+                    landmarks >= ENROLL_MIN_LANDMARKS &&
+                    size >= ENROLL_MIN_SIZE;
+        }
+
+        public String enrollmentGateReason() {
+            return gateReason(true);
+        }
+
+        private String gateReason(boolean enrollment) {
+            List<String> failures = new ArrayList<>();
+            if (enrollment) {
+                addFailure(failures, composite, ENROLL_MIN_COMPOSITE, "综合Q");
+                addFailure(failures, sharpness, ENROLL_MIN_SHARPNESS, "清晰");
+                addFailure(failures, brightness, ENROLL_MIN_LIGHT, "光照");
+                addFailure(failures, contrast, ENROLL_MIN_CONTRAST, "对比");
+                addFailure(failures, pose, ENROLL_MIN_POSE, "姿态");
+                addFailure(failures, landmarks, ENROLL_MIN_LANDMARKS, "关键点");
+                addFailure(failures, size, ENROLL_MIN_SIZE, "尺寸");
+            } else {
+                addFailure(failures, composite, QUALITY_GATE, "综合Q");
+                addFailure(failures, sharpness, PROBE_MIN_SHARPNESS, "清晰");
+                addFailure(failures, brightness, PROBE_MIN_LIGHT, "光照");
+                addFailure(failures, contrast, PROBE_MIN_CONTRAST, "对比");
+                addFailure(failures, pose, PROBE_MIN_POSE, "姿态");
+                addFailure(failures, landmarks, PROBE_MIN_LANDMARKS, "关键点");
+                addFailure(failures, size, PROBE_MIN_SIZE, "尺寸");
+            }
+            return failures.isEmpty() ? "PASS" : String.join(" / ", failures);
+        }
+
+        private static void addFailure(List<String> failures, float actual, float threshold, String label) {
+            if (actual < threshold) {
+                failures.add(String.format(Locale.US, "%s %.2f<%.2f", label, actual, threshold));
+            }
+        }
     }
 
     private FaceQuality() {}
@@ -87,10 +160,7 @@ public final class FaceQuality {
         return clamp01(1f - (0.50f * y + 0.30f * p + 0.20f * r));
     }
 
-    /**
-     * Evaluate the pixels the recognition model actually receives plus detector geometry.
-     * The frame dimensions should be in the same coordinate system as Face#getBoundingBox().
-     */
+    /** Evaluate the pixels the recognition model actually receives plus detector geometry. */
     public static Snapshot evaluate(Bitmap aligned, Face face, int frameWidth, int frameHeight) {
         int w = aligned.getWidth();
         int h = aligned.getHeight();
@@ -146,7 +216,6 @@ public final class FaceQuality {
         float frameArea = Math.max(1f, (float) frameWidth * frameHeight);
         float faceArea = Math.max(0f, (float) face.getBoundingBox().width() * face.getBoundingBox().height());
         float faceAreaRatio = faceArea / frameArea;
-        // 8% of frame area is already a strong enrollment crop; smaller faces scale linearly.
         float qSize = clamp01(faceAreaRatio / 0.08f);
 
         return compose(qSharp, qLight, qContrast, qPose, qLandmarks, qSize,
