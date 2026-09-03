@@ -28,6 +28,9 @@ jobs:
       - name: Verify R3.2 model microscope linkage
         run: python tools/verify_model_microscope_linkage.py
 
+      - name: Verify R4 deep microscope contract
+        run: python tools/verify_r4_microscope.py
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
