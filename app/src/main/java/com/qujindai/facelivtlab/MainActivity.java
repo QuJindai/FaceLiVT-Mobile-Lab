@@ -944,8 +944,7 @@ public class MainActivity extends AppCompatActivity {
                     similarity, decision.margin, threshold, decision.accepted, fusedFrames,
                     detectMs, alignMs, inferMs, matchMs, totalMs, thermal);
 
-            if (results.length() > 0) results.append('
-');
+            if (results.length() > 0) results.append('\n');
             results.append(variant.storageKey).append("  ");
             if (decision.top1Name.isEmpty()) {
                 results.append("无模板");
