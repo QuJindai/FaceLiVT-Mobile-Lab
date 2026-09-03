@@ -18,7 +18,7 @@ public final class EmbeddingScatterView extends View {
     public EmbeddingScatterView(Context c, AttributeSet a, int s) { super(c, a, s); init(); }
 
     private void init() {
-        setMinimumHeight(dp(170));
+        setMinimumHeight(Math.round(dp(170)));
         text.setTextSize(dp(11));
         text.setColor(Color.LTGRAY);
     }

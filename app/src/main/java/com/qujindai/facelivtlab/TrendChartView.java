@@ -22,7 +22,7 @@ public final class TrendChartView extends View {
     public TrendChartView(Context c, AttributeSet a, int s) { super(c, a, s); init(); }
 
     private void init() {
-        setMinimumHeight(dp(160));
+        setMinimumHeight(Math.round(dp(160)));
         text.setTextSize(dp(10));
     }
 

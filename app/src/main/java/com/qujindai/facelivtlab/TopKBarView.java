@@ -22,7 +22,7 @@ public final class TopKBarView extends View {
     public TopKBarView(Context c, AttributeSet a, int s) { super(c, a, s); init(); }
 
     private void init() {
-        setMinimumHeight(dp(150));
+        setMinimumHeight(Math.round(dp(150)));
         text.setTextSize(dp(12));
         text.setColor(Color.WHITE);
     }

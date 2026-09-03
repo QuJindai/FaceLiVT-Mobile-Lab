@@ -19,7 +19,7 @@ public final class SimilarityMatrixView extends View {
     public SimilarityMatrixView(Context c, AttributeSet a, int s) { super(c, a, s); init(); }
 
     private void init() {
-        setMinimumHeight(dp(160));
+        setMinimumHeight(Math.round(dp(160)));
         text.setTextSize(dp(11));
         text.setTextAlign(Paint.Align.CENTER);
     }
