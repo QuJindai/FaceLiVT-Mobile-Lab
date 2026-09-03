@@ -1,0 +1,39 @@
+name: R5 Doctor Repair
+
+on:
+  push:
+    branches: [ feat/r5-identity-guard-history ]
+    paths:
+      - '.github/workflows/r5-doctor-repair.yml'
+      - 'tools/apply_r5_doctor_repairs.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/r5-identity-guard-history
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply R5 doctor repairs
+        run: python tools/apply_r5_doctor_repairs.py
+      - name: Verify repair surface
+        run: |
+          git diff --check
+          grep -Fq 'R5 学习版本.\n' app/src/main/java/com/qujindai/facelivtlab/MainActivity.java || true
+          grep -Fq 'tracked != null ? tracked : -1' app/src/main/java/com/qujindai/facelivtlab/MainActivity.java
+          grep -Fq 'identityGuard.reset();' app/src/main/java/com/qujindai/facelivtlab/MainActivity.java
+      - name: Commit repairs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/qujindai/facelivtlab/MainActivity.java
+          git commit -m "fix: repair R5 guard runtime and source flow"
+          git push origin HEAD:feat/r5-identity-guard-history
