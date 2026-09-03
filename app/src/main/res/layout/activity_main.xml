@@ -31,7 +31,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="FaceLiVT R4 · 深层人脸显微镜"
+                    android:text="FaceLiVT R5 · 身份防重学习显微镜"
                     android:textColor="#FFFFFF"
                     android:textSize="19sp"
                     android:textStyle="bold" />
@@ -80,7 +80,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="5dp"
-                android:text="R4 · 几何 / 向量 / 18 Block 三层显微镜"
+                android:text="R5 · Guard / 历史五帧 / 几何 / 向量 / 18 Block"
                 android:textColor="#B9D8D2"
                 android:textSize="11sp" />
         </LinearLayout>
@@ -179,9 +179,15 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="3dp"
-                        android:text="先观察每一帧质量，再构建三套模型各自的质量加权模板。"
+                        android:text="先做录入前身份防重；确认新身份后再建立三模型质量加权模板。"
                         android:textColor="#B8C9C7"
                         android:textSize="11sp" />
+
+                    <com.qujindai.facelivtlab.IdentityGuardPanel
+                        android:id="@+id/identityGuardPanel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp" />
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -238,6 +244,7 @@
                         android:textSize="11sp" />
 
                     <TextView
+                        android:id="@+id/txtHistoryStrip"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
