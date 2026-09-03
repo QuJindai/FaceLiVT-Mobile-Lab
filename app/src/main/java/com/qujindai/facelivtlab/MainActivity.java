@@ -6,6 +6,8 @@ import android.graphics.Bitmap;
 import android.graphics.Matrix;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.Size;
 import android.view.View;
 import android.widget.ArrayAdapter;
@@ -27,6 +29,10 @@ import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.camera.view.PreviewView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.mlkit.vision.common.InputImage;
@@ -55,9 +61,13 @@ public class MainActivity extends AppCompatActivity {
     private TextView txtMetrics;
     private TextView txtPerf;
     private TextView txtThreshold;
+    private TextView txtActionHint;
     private Spinner spinnerProfile;
     private Spinner spinnerModel;
     private EditText editName;
+    private Button btnEnroll;
+    private Button btnSwitch;
+    private Button btnExport;
 
     private final ExecutorService cameraExecutor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean busy = new AtomicBoolean(false);
@@ -71,6 +81,7 @@ public class MainActivity extends AppCompatActivity {
     private volatile ModelMode modelMode = ModelMode.S;
     private volatile float threshold = 0.45f;
     private volatile int lensFacing = CameraSelector.LENS_FACING_FRONT;
+    private volatile boolean cameraReady = false;
     private long lastFrameMs = 0;
     private long noTrackingSequence = 0;
 
@@ -81,7 +92,10 @@ public class MainActivity extends AppCompatActivity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         setContentView(R.layout.activity_main);
+        applySystemBarInsets();
+
         for (ModelVariant variant : ModelVariant.values()) {
             fusion.put(variant, new TemporalEmbeddingBuffer(5));
             performance.put(variant, new PerformanceWindow(30));
@@ -99,13 +113,43 @@ public class MainActivity extends AppCompatActivity {
                 .enableTracking()
                 .build();
         detector = FaceDetection.getClient(options);
-        txtResult.setText("R2 已就绪 · 默认 FaceLiVTv2-S");
+        txtResult.setText("R2.1 已就绪 · 默认 FaceLiVTv2-S");
+        updateActionState();
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             startCamera();
         } else {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, REQ_CAMERA);
         }
+    }
+
+    private void applySystemBarInsets() {
+        View topOverlay = findViewById(R.id.topOverlay);
+        View bottomControls = findViewById(R.id.bottomControls);
+        int topLeft = topOverlay.getPaddingLeft();
+        int topTop = topOverlay.getPaddingTop();
+        int topRight = topOverlay.getPaddingRight();
+        int topBottom = topOverlay.getPaddingBottom();
+        int bottomLeft = bottomControls.getPaddingLeft();
+        int bottomTop = bottomControls.getPaddingTop();
+        int bottomRight = bottomControls.getPaddingRight();
+        int bottomBottom = bottomControls.getPaddingBottom();
+
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root), (v, windowInsets) -> {
+            Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+            topOverlay.setPadding(
+                    topLeft + bars.left,
+                    topTop + bars.top,
+                    topRight + bars.right,
+                    topBottom);
+            bottomControls.setPadding(
+                    bottomLeft + bars.left,
+                    bottomTop,
+                    bottomRight + bars.right,
+                    bottomBottom + bars.bottom);
+            return windowInsets;
+        });
+        ViewCompat.requestApplyInsets(findViewById(R.id.root));
     }
 
     private void bindViews() {
@@ -115,27 +159,37 @@ public class MainActivity extends AppCompatActivity {
         txtMetrics = findViewById(R.id.txtMetrics);
         txtPerf = findViewById(R.id.txtPerf);
         txtThreshold = findViewById(R.id.txtThreshold);
+        txtActionHint = findViewById(R.id.txtActionHint);
         spinnerProfile = findViewById(R.id.spinnerProfile);
         spinnerModel = findViewById(R.id.spinnerModel);
         editName = findViewById(R.id.editName);
-        Button btnEnroll = findViewById(R.id.btnEnroll);
-        Button btnSwitch = findViewById(R.id.btnSwitch);
-        Button btnExport = findViewById(R.id.btnExport);
+        btnEnroll = findViewById(R.id.btnEnroll);
+        btnSwitch = findViewById(R.id.btnSwitch);
+        btnExport = findViewById(R.id.btnExport);
 
         btnEnroll.setOnClickListener(v -> beginEnrollment());
         btnSwitch.setOnClickListener(v -> {
+            cameraReady = false;
+            updateActionState();
             lensFacing = lensFacing == CameraSelector.LENS_FACING_FRONT
                     ? CameraSelector.LENS_FACING_BACK : CameraSelector.LENS_FACING_FRONT;
             clearFusion();
             bindCameraUseCases();
         });
         btnExport.setOnClickListener(v -> exportSession());
+
+        editName.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            @Override public void afterTextChanged(Editable s) { updateActionState(); }
+        });
     }
 
     private void setupUi() {
         DegradationProfile[] profiles = DegradationProfile.values();
         ArrayAdapter<DegradationProfile> profileAdapter = new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_dropdown_item, profiles);
+                R.layout.spinner_item, profiles);
+        profileAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
         spinnerProfile.setAdapter(profileAdapter);
         spinnerProfile.setSelection(3);
         spinnerProfile.setOnItemSelectedListener(new SimpleItemSelectedListener(position -> {
@@ -145,7 +199,8 @@ public class MainActivity extends AppCompatActivity {
 
         ModelMode[] modes = ModelMode.values();
         ArrayAdapter<ModelMode> modeAdapter = new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_dropdown_item, modes);
+                R.layout.spinner_item, modes);
+        modeAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
         spinnerModel.setAdapter(modeAdapter);
         spinnerModel.setSelection(0);
         spinnerModel.setOnItemSelectedListener(new SimpleItemSelectedListener(position -> {
@@ -162,6 +217,43 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private void updateActionState() {
+        if (btnEnroll == null || btnSwitch == null || btnExport == null || editName == null || txtActionHint == null) return;
+
+        boolean hasPermission = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+        boolean hasName = !editName.getText().toString().trim().isEmpty();
+        boolean enrolling = enrollmentName != null && enrollmentRemaining.get() > 0;
+        int csvRows = sessionLogger.size();
+
+        btnEnroll.setEnabled(cameraReady && hasName && !enrolling);
+        btnSwitch.setEnabled(cameraReady);
+        btnExport.setEnabled(sessionLogger.size() > 0);
+
+        if (enrolling) {
+            int left = Math.max(0, enrollmentRemaining.get());
+            btnEnroll.setText("录入中 " + (5 - left) + "/5");
+        } else {
+            btnEnroll.setText("三模型录入×5");
+        }
+        btnSwitch.setText(cameraReady ? "切换相机" : "相机初始化");
+
+        if (!hasPermission) {
+            txtActionHint.setText("状态：需要相机权限");
+        } else if (!cameraReady) {
+            txtActionHint.setText("状态：相机初始化中，按钮暂不可用");
+        } else if (enrolling) {
+            txtActionHint.setText("状态：正在录入 " + enrollmentName + " · 还需 " + enrollmentRemaining.get() + " 帧");
+        } else if (!hasName) {
+            txtActionHint.setText(csvRows > 0
+                    ? ("状态：相机就绪 · CSV 已记录 " + csvRows + " 条 · 输入姓名/编号可继续录入")
+                    : "状态：相机就绪 · 输入姓名/编号后可录入");
+        } else if (csvRows == 0) {
+            txtActionHint.setText("状态：可录入 · 产生识别结果后可导出 CSV");
+        } else {
+            txtActionHint.setText("状态：相机就绪 · CSV 已记录 " + csvRows + " 条");
+        }
+    }
+
     private void updateThreshold(int progress) {
         threshold = 0.20f + progress * 0.006f;
         txtThreshold.setText(String.format(Locale.US, "识别阈值 %.2f", threshold));
@@ -173,35 +265,54 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "先输入姓名或编号", Toast.LENGTH_SHORT).show();
             return;
         }
+        if (!cameraReady) {
+            Toast.makeText(this, "相机尚未就绪", Toast.LENGTH_SHORT).show();
+            return;
+        }
         enrollmentName = name;
         enrollmentRemaining.set(5);
         clearFusion();
         txtResult.setText("三模型同步录入 " + name + " · 还需 5 帧");
+        updateActionState();
     }
 
     private void exportSession() {
+        if (sessionLogger.size() == 0) {
+            Toast.makeText(this, "暂无识别记录可导出", Toast.LENGTH_SHORT).show();
+            updateActionState();
+            return;
+        }
         try {
             File file = sessionLogger.exportCsv(this);
             txtResult.setText("CSV 已导出 · " + sessionLogger.size() + " 条\n" + file.getAbsolutePath());
         } catch (Exception e) {
             txtResult.setText("CSV 导出失败: " + e.getClass().getSimpleName());
         }
+        updateActionState();
     }
 
     private void startCamera() {
+        cameraReady = false;
+        updateActionState();
         ListenableFuture<ProcessCameraProvider> future = ProcessCameraProvider.getInstance(this);
         future.addListener(() -> {
             try {
                 cameraProvider = future.get();
                 bindCameraUseCases();
             } catch (Exception e) {
+                cameraReady = false;
                 txtResult.setText("相机启动失败");
+                updateActionState();
             }
         }, ContextCompat.getMainExecutor(this));
     }
 
     private void bindCameraUseCases() {
-        if (cameraProvider == null) return;
+        if (cameraProvider == null) {
+            cameraReady = false;
+            updateActionState();
+            return;
+        }
         cameraProvider.unbindAll();
 
         Preview preview = new Preview.Builder().build();
@@ -217,8 +328,12 @@ public class MainActivity extends AppCompatActivity {
         CameraSelector selector = new CameraSelector.Builder().requireLensFacing(lensFacing).build();
         try {
             cameraProvider.bindToLifecycle(this, selector, preview, analysis);
+            cameraReady = true;
+            updateActionState();
         } catch (Exception e) {
+            cameraReady = false;
             txtResult.setText("相机绑定失败: " + e.getClass().getSimpleName());
+            updateActionState();
         }
     }
 
@@ -319,6 +434,7 @@ public class MainActivity extends AppCompatActivity {
             txtMetrics.setText(metricLine(sourceW, sourceH, degraded, detectorBitmap, active, faceW, faceH, detectMs)
                     + " | 库=" + totalIds);
             txtPerf.setText(timing + "\n" + thermalLine(thermal));
+            updateActionState();
         });
     }
 
@@ -367,6 +483,7 @@ public class MainActivity extends AppCompatActivity {
             txtMetrics.setText(metricLine(sourceW, sourceH, degraded, detectorBitmap, active, faceW, faceH, detectMs)
                     + " | 阈值=" + String.format(Locale.US, "%.2f", threshold) + " | 库=" + totalIds + " | CSV=" + sessionLogger.size());
             txtPerf.setText(perfText + "\n" + thermalLine(thermal));
+            updateActionState();
         });
     }
 
@@ -407,7 +524,9 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == REQ_CAMERA && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             startCamera();
         } else if (requestCode == REQ_CAMERA) {
+            cameraReady = false;
             txtResult.setText("需要相机权限才能测试");
+            updateActionState();
         }
     }
 
