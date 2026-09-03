@@ -34,13 +34,15 @@ public class EnrollmentCoverageTest {
         assertTrue(summary.passesEnrollment());
     }
 
-    @Test public void noveltyGateRejectsExactRepeatButAcceptsUsefulVariation() {
+    @Test public void noveltyNeedsEmbeddingAndPoseDifference() {
         EnrollmentSession s = new EnrollmentSession();
-        FaceQuality.Snapshot firstQ = q(0f, 0f);
-        float[] first = new float[]{1f,0f,0f};
-        s.add(ModelVariant.S, first, firstQ);
+        s.add(ModelVariant.S, new float[]{1f,0f,0f}, q(0f,0f));
 
         assertFalse(s.isNovelCandidate(ModelVariant.S, new float[]{1f,0f,0f}, q(.2f,.2f)));
+        assertFalse("embedding noise alone must not count as coverage",
+                s.isNovelCandidate(ModelVariant.S, new float[]{.96f,.28f,0f}, q(.2f,.2f)));
+        assertFalse("pose alone must not count when identity vector is a duplicate",
+                s.isNovelCandidate(ModelVariant.S, new float[]{1f,0f,0f}, q(5f,0f)));
         assertTrue(s.isNovelCandidate(ModelVariant.S, new float[]{.96f,.28f,0f}, q(5f,0f)));
     }
 }
