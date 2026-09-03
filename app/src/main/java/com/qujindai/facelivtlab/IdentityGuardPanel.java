@@ -4,6 +4,8 @@ import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.util.AttributeSet;
+import android.view.View;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -79,11 +81,15 @@ public final class IdentityGuardPanel extends LinearLayout {
 
         historyTitle = text("历史学习版本", 11f, Color.rgb(160, 220, 210), true);
         versions = new Spinner(context);
-        versions.setOnItemSelectedListener(new SimpleItemSelectedListener(position -> {
-            if (suppressVersionCallback || listener == null) return;
-            Object item = versions.getItemAtPosition(position);
-            if (item instanceof VersionItem) listener.onHistoryVersionSelected(((VersionItem) item).version);
-        }));
+        versions.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                if (suppressVersionCallback || listener == null) return;
+                Object item = versions.getItemAtPosition(position);
+                if (item instanceof VersionItem) listener.onHistoryVersionSelected(((VersionItem) item).version);
+            }
+
+            @Override public void onNothingSelected(AdapterView<?> parent) {}
+        });
         addView(historyTitle, lp(0, 5));
         addView(versions, lp(0, 2));
 
