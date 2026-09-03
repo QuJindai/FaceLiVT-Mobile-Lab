@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [ main, feat/r2-big-validation, fix/r2-ui-safe-area, feat/r3-face-microscope, feat/r31-calibration-microscope, fix/r32-model-microscope-linkage, feat/r4-deep-microscope ]
+    branches: [ main, feat/r2-big-validation, fix/r2-ui-safe-area, feat/r3-face-microscope, feat/r31-calibration-microscope, fix/r32-model-microscope-linkage, feat/r4-deep-microscope, fix/r4-deep-reconcile ]
   workflow_dispatch:
 
 jobs:
