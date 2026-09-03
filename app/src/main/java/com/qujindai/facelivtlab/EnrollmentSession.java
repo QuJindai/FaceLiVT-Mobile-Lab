@@ -94,7 +94,7 @@ public final class EnrollmentSession {
             float rollDelta = Math.abs(sample.quality.roll - quality.roll);
             maxPoseDelta = Math.max(maxPoseDelta, Math.max(yawDelta, Math.max(pitchDelta, rollDelta)));
         }
-        return maxCosine < NOVELTY_MAX_COSINE || maxPoseDelta >= NOVELTY_POSE_DELTA_DEG;
+        return maxCosine < NOVELTY_MAX_COSINE && maxPoseDelta >= NOVELTY_POSE_DELTA_DEG;
     }
 
     public synchronized int size(ModelVariant variant) { return samples.get(variant).size(); }
