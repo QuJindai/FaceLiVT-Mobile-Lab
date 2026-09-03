@@ -1,140 +1,153 @@
-# FaceLiVT Mobile Lab R3.2
+# FaceLiVT Mobile Lab R4
 
-Android on-device face-recognition **microscope and calibration workbench** for validating FaceLiVTv2 lightweight face models under intentionally degraded cheap-camera image quality.
+Android on-device face-recognition **unified microscope and calibration workbench** for validating FaceLiVTv2 lightweight models under intentionally degraded cheap-camera image quality.
 
-The phone camera remains high quality only for preview. Detection, alignment and recognition consume the degraded analysis frame.
+The high-quality handset camera is only the source. Detection, alignment and recognition consume the deliberately degraded analysis frame.
 
-## R3.2: model selection drives the microscope
+## R4: geometry + embeddings + model internals
 
-R3.2 fixes model/UI state divergence found on handset testing. `S`, `XS`, and `M` are now the single source of truth for every model-specific microscope panel.
+R4 merges three observability layers while retaining all R3.2 safeguards.
 
-When the model is switched, the app immediately:
+### 1. Model architecture microscope
 
-- changes the microscope focus to the selected backbone
-- clears the previous model's temporal fusion, Top-K and trend state
-- refreshes the empirical threshold calibration for that backbone
-- clears the previous fixed-PCA Probe projection and waits for a Probe from the new backbone
-- marks pipeline, formula and performance panels as waiting for the newly selected model instead of leaving stale values on screen
-- rejects any in-flight frame that started before the model switch, so an old-model result cannot overwrite the new microscope state
+R4 makes the three FaceLiVTv2 variants explicit:
 
-`Probe` image-quality metrics are model-independent and are labelled as such. Model-dependent evidence—embedding, Top-K, margin, calibration, PCA projection, inference timing and decision formula—follows the selected backbone.
+| Variant | Approx params | Depths | Main blocks | Stage widths | Mixers | Pre-head | Identity embedding |
+| --- | ---: | --- | ---: | --- | --- | ---: | ---: |
+| XS | ~2.90M | `[3,3,9,3]` | 18 | `[32,64,128,256]` | RepMix, RepMix, MHLA, MHLA | 1284D | 512D |
+| S | ~4.62M | `[3,3,9,3]` | 18 | `[48,96,192,320]` | RepMix, RepMix, MHLA, MHLA | 1284D | 512D |
+| M | ~7.04M | `[3,3,9,3]` | 18 | `[56,112,224,448]` | RepMix, RepMix, MHLA, MHLA | 1284D | 512D |
 
-In `XS / S / M Compare`, the microscope retains the most recently explicit XS/S/M focus instead of being permanently pinned to S. The existing `观察模型` selector can also change the microscope focus while Compare is active.
+XS/S/M therefore share the same depth and mainly scale model width.
 
-## R3.1: from microscope to calibrated microscope
-
-R3.1 keeps the separate `录入显微镜` and `检测显微镜` workflows, and corrects the issues exposed by S24U handset testing.
-
-### Enrollment: quality cannot be averaged away
-
-A sample first passes explicit hard gates before it may participate in template construction. Enrollment is stricter than recognition so excellent pose/landmarks/face size cannot hide very poor pixels.
-
-Enrollment currently requires:
+The UI deliberately separates four easily-confused quantities:
 
 ```text
-Q >= .55
-Qsharp >= .28
-Qlight >= .28
-Qcontrast >= .25
-Qpose >= .55
-Qlandmark >= .80
-Qsize >= .45
+5 facial landmarks != 5 enrollment samples != 18 model blocks != 512 embedding dimensions
 ```
 
-The composite score remains visible:
+### One ONNX asset per model, optional microscope outputs
+
+R4 does **not** ship a second diagnostic copy of each model. The same XS/S/M ONNX files expose:
 
 ```text
-Qi = .25 Qsharp + .15 Qlight + .10 Qcontrast
-   + .20 Qpose + .15 Qlandmark + .15 Qsize
+embedding    [1, 512]
+block_stats  [18, 4]
+stage_stats  [4, 4]
+prehead      [1, 1284]
 ```
 
-### Enrollment: stability and coverage are separate
+Normal inference requests only `embedding`. The current microscope-focus model requests the additional diagnostic outputs. In Compare mode the other backbones stay on the embedding-only path.
 
-Five identical-looking consecutive frames are no longer rewarded as a strong template. After the first accepted sample, another frame counts only when both its embedding and head pose add useful novelty.
-
-The dossier reports:
-
-- `Sstable`: mean cosine from samples to the quality-weighted centroid
-- `D = 1 - Sstable`: centroid dispersion
-- `Cemb`: identity-space spread
-- `Cpose`: yaw/pitch pose spread
-- `Coverage = sqrt(Cemb * Cpose)`
-
-Template commit requires:
+Each block/stage row contains:
 
 ```text
-N >= 5
-Qavg >= .55
-Sstable >= .70
-Coverage >= .35
-all per-frame hard gates PASS
+mean_abs
+RMS
+sparsity = mean(|x| < 0.05)
+delta_ratio = mean(|x_out-x_in|) / (mean(|x_in|)+1e-6)
 ```
 
-XS, S and M still use independent 512-D spaces and all three must pass before the new template replaces the old one.
+These values are engineering observability signals, not identity confidence scores. Full intermediate feature maps are not retained.
 
-### Recognition: single-identity margin is N/A
+### 2. Enrollment embedding microscope
 
-R3.1 no longer invents `Top2=0` when only one identity exists. With one candidate the UI explicitly shows:
+Enrollment still collects five quality-gated, non-duplicate samples. For a selected model:
 
 ```text
-Top2 = none
-margin = N/A
+M_ij = cosine(f_i, f_j)
 ```
 
-Recognition can still perform the identity/quality decision, but the microscope states that one identity cannot evaluate 1:N discrimination.
+Five samples therefore produce a **5x5** relation matrix. The implementation remains dynamic NxN; this matrix size is unrelated to model depth or the five facial landmarks.
 
-### Empirical threshold calibration
+XS/S/M each have their own 512D feature space, template, matrix and PCA basis. Cross-model embedding cosine is never used.
 
-For identities re-enrolled by R3.1, the app stores local reference embeddings and genuine sample-to-centroid scores. With at least two such identities it builds a small empirical impostor distribution from cross-identity template cosine scores and reports:
+R4 adds a same-sample-pair comparison panel with:
 
-- suggested identity threshold
-- empirical FAR
-- empirical FRR
-- approximate EER
-- genuine/impostor sample counts
-- distribution separation gap
+- mean pair cosine
+- minimum pair cosine
+- template stability `Sstable`
+- coverage
+- lowest-consistency/outlier sample
+- signed `DeltaMatrix XS-S`
+- signed `DeltaMatrix M-S`
 
-The suggested threshold can be applied from the handset. This is an engineering diagnostic for the current device/dataset, **not a production biometric certification**.
+The delta matrices are meaningful because every cell refers to the same enrollment sample pair. PCA absolute coordinates are **not** comparable across variants; only cluster shape, relative spread and outlier behavior should be compared.
 
-### Fixed-PCA live Probe microscope
+### 3. Five-point geometry microscope
 
-The recognition page can project the current fused Probe embedding into the same fixed 2D PCA coordinate system as the enrolled samples and centroid. It shows the live Probe point, a short Probe trajectory, and PC1/PC2 explained variance.
-
-The UI explicitly states that 2D projection is visualization only; the final identity decision remains the original **512-D cosine**.
-
-### Performance scopes are explicit
-
-Timing is no longer mixed. The page separately shows:
+The five landmarks are:
 
 ```text
-current frame: detect / align / infer / match / total
-30-frame mean: detect / align / infer / match / total
+LE = left eye
+RE = right eye
+N  = nose base
+ML = left mouth corner
+MR = right mouth corner
 ```
 
-## Existing microscope capabilities
+They drive geometric normalization, not direct identity classification.
 
-- FaceLiVTv2 **XS / S / M** official checkpoints converted to ONNX during CI
-- independent per-backbone identity templates
-- run modes: S, XS, M, or XS/S/M compare
+For detected points `p_i` and canonical ArcFace points `p_hat_i`, R4 fits:
+
+```text
+p'_i = s R p_i + t
+```
+
+and reports:
+
+- landmark completeness `n/5`
+- five-point similarity alignment vs fallback crop
+- eye distance
+- fitted scale
+- fitted rotation
+- mean canonical residual
+- maximum canonical residual
+
+The residual is:
+
+```text
+E_align = mean_i ||p'_i - p_hat_i||_2
+```
+
+This makes it possible to separate a detector/landmark/alignment problem from a backbone-recognition problem.
+
+## Existing R3.2 capabilities retained
+
+- separate Enrollment microscope and Recognition microscope pages
+- model-linked XS/S/M selection state
+- selection epoch rejects stale in-flight frames after a model/focus switch
+- Compare mode retains the last explicit XS/S/M microscope focus
 - virtual camera tiers: native, 1080p, 720p, 480p, 360p, 240p, 180p, 144p
 - resolution + JPEG degradation before detection/recognition
 - low-resolution detector assistance only upscales already-degraded pixels
-- five-point eye/nose/mouth alignment to 112x112
+- five-point alignment to 112x112
+- enrollment hard gates, stability and coverage
 - tracking-scoped five-frame temporal embedding fusion
-- sample similarity matrix and enrollment 512D→2D projection
-- Top-K bars, quality/similarity temporal trend, numeric formula chains
-- microscope CSV with quality, pose, decision margin and per-stage timing
-- battery temperature / Android thermal status
-- arm64-v8a APK target for S24U-class handset validation
+- Top-K bars, quality/similarity trends and numeric formula chains
+- single-identity margin shown as N/A instead of inventing Top2=0
+- empirical handset threshold calibration using genuine/impostor reference scores
+- fixed-PCA live Probe visualization; final decision remains 512D cosine
+- explicit current-frame and 30-frame timing scopes
+- microscope CSV and Android thermal/battery telemetry
+- arm64-v8a APK target for S24U-class validation
 
 ## Reproducible model build
 
-GitHub Actions pins FaceLiVT upstream at commit `d99d86607c7c05540c74e815e5a88847f7e667db`. It downloads the public `facelivtv2-xs.pt`, `facelivtv2-s.pt` and `facelivtv2-m.pt` checkpoints, applies the upstream deployment reparameterization, exports fixed-shape `1x3x112x112` ONNX files, and requires both:
+GitHub Actions pins FaceLiVT upstream at commit `d99d86607c7c05540c74e815e5a88847f7e667db` and downloads the public `facelivtv2-xs.pt`, `facelivtv2-s.pt` and `facelivtv2-m.pt` checkpoints.
 
-- original PyTorch vs reparameterized graph cosine >= `0.99999`
-- reparameterized PyTorch vs ONNX Runtime cosine >= `0.99999`
+For each model CI:
 
-Final CI runs the handset UI contract, R3 microscope contract, R3.1 calibration contract, R3.2 model-linkage contract, all unit tests, Android APK build, three-model asset verification and arm64-only ABI verification.
+1. loads the official checkpoint strictly;
+2. applies upstream deployment reparameterization;
+3. checks original vs deployed embedding cosine >= `0.99999`;
+4. wraps the same deployed network with compact diagnostic outputs;
+5. verifies the wrapper does not change the 512D embedding;
+6. exports ONNX opset 18;
+7. checks output names and shapes;
+8. requires deployed PyTorch vs ONNX Runtime embedding cosine >= `0.99999`.
+
+Final CI also runs the handset UI contract, R3 microscope contract, R3.1 calibration contract, R3.2 model-linkage contract, R4 unified-microscope contract, all JUnit tests, Android APK build, three-model asset verification and arm64-only ABI verification.
 
 Upstream: https://github.com/novendrastywn/FaceLiVT
 
