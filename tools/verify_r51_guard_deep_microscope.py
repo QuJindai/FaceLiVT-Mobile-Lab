@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "app/src/main/java/com/qujindai/facelivtlab/MainActivity.java"
+BUILD = ROOT / "app/build.gradle"
 
 
 def require(condition: bool, message: str) -> None:
@@ -44,5 +46,9 @@ require("now - lastDeepDiagnosticMs < 1000L" in helper,
         "focused Guard diagnostics must be throttled to protect handset thermals")
 require("return diagnostic.embedding;" in helper,
         "focused diagnostic embedding must be reused for Guard matching instead of duplicated inference")
+
+build = BUILD.read_text(encoding="utf-8")
+require(re.search(r"versionCode\s+8\b", build) is not None, "versionCode must be 8")
+require("versionName '0.5.1'" in build, "versionName must be 0.5.1")
 
 print("R5.1 GUARD DEEP MICROSCOPE PASS: Guard live frames feed the focused enrollment 18-block microscope without duplicate focused inference")
