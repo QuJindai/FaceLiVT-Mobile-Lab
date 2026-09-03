@@ -31,9 +31,6 @@ jobs:
       - name: Verify R4 deep microscope contract
         run: python tools/verify_r4_microscope.py
 
-      - name: Verify R5 identity guard contract
-        run: python tools/verify_r5_identity_guard.py
-
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -52,6 +49,9 @@ jobs:
 
       - name: Unit tests
         run: gradle :app:testDebugUnitTest --stacktrace
+
+      - name: Verify R5 identity guard contract
+        run: python tools/verify_r5_identity_guard.py
 
       - name: Install model export toolchain
         run: |
