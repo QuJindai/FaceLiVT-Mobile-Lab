@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 JAVA = ROOT / "app/src/main/java/com/qujindai/facelivtlab"
@@ -7,6 +8,7 @@ MAIN = JAVA / "MainActivity.java"
 LAYOUT = ROOT / "app/src/main/res/layout/activity_main.xml"
 LOGGER = JAVA / "SessionLogger.java"
 EXPORTER = ROOT / "tools/export_facelivtv2.py"
+BUILD = ROOT / "app/build.gradle"
 
 
 def require(condition: bool, message: str) -> None:
@@ -74,5 +76,9 @@ for fragment in (
 exporter = EXPORTER.read_text(encoding="utf-8")
 for fragment in ("block_stats", "stage_stats", "prehead_stats", "relative_delta"):
     require(fragment in exporter, f"exporter missing {fragment}")
+
+build = BUILD.read_text(encoding="utf-8")
+require(re.search(r"versionCode\s+6\b", build) is not None, "versionCode must be 6")
+require("versionName '0.4.0'" in build, "versionName must be 0.4.0")
 
 print("R4 MICROSCOPE CONTRACT PASS: geometry, N×N/model deltas, 18-block diagnostics and model-linked UI are wired")
