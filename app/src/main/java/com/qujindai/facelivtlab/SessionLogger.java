@@ -17,7 +17,6 @@ public final class SessionLogger {
     private static final String HEADER = "timestamp_ms,profile,model,source,simulated,assist,face_px,quality,sharpness,brightness,contrast,pose,landmarks,size,yaw,pitch,roll,top1,top2,similarity,margin,threshold,quality_gate,accepted,fused_frames,detect_ms,align_ms,infer_ms,match_ms,total_ms,battery_c,thermal_status,thermal_label";
     private final List<String> rows = new ArrayList<>();
 
-    /** R3 microscope record: decision evidence and stage timings are exported, not only the final identity. */
     public synchronized void addMicroscope(long timestampMs, String profile, ModelVariant variant,
                                            int sourceW, int sourceH, int simW, int simH, int assistW, int assistH,
                                            int faceW, int faceH, FaceQuality.Snapshot quality,
@@ -45,14 +44,13 @@ public final class SessionLogger {
                 battery + "," + thermalStatus + "," + SessionCsv.escape(thermalLabel));
     }
 
-    /** R2 compatibility path retained for old callers/tests. */
     public synchronized void add(long timestampMs, String profile, ModelVariant variant,
                                  int sourceW, int sourceH, int simW, int simH, int assistW, int assistH,
                                  int faceW, int faceH, String top1, float similarity, boolean accepted,
                                  int fusedFrames, long detectMs, long inferMs, long totalMs,
                                  ThermalProbe.Snapshot thermal) {
         addMicroscope(timestampMs, profile, variant, sourceW, sourceH, simW, simH, assistW, assistH,
-                faceW, faceH, null, top1, "", similarity, 0f, 0f, accepted, fusedFrames,
+                faceW, faceH, null, top1, "", similarity, Float.NaN, 0f, accepted, fusedFrames,
                 detectMs, 0L, inferMs, 0L, totalMs, thermal);
     }
 
@@ -69,11 +67,13 @@ public final class SessionLogger {
         if (dir == null) dir = context.getFilesDir();
         if (!dir.exists() && !dir.mkdirs()) throw new IllegalStateException("Cannot create export directory");
         String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date());
-        File file = new File(dir, "facelivt-r3-microscope-" + stamp + ".csv");
+        File file = new File(dir, "facelivt-r31-microscope-" + stamp + ".csv");
         byte[] bytes = toCsv().getBytes(StandardCharsets.UTF_8);
         try (FileOutputStream out = new FileOutputStream(file)) { out.write(bytes); }
         return file;
     }
 
-    private static String f(float value) { return String.format(Locale.US, "%.6f", value); }
+    private static String f(float value) {
+        return Float.isFinite(value) ? String.format(Locale.US, "%.6f", value) : "";
+    }
 }
