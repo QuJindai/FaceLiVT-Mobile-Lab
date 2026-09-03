@@ -1,0 +1,41 @@
+name: R5 Atomic Commit Patch
+
+on:
+  push:
+    branches: [ feat/r5-identity-guard-history ]
+    paths:
+      - '.github/workflows/r5-atomic-commit.yml'
+      - 'tools/apply_r5_atomic_commit.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/r5-identity-guard-history
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply R5 atomic preflight patch
+        run: python tools/apply_r5_atomic_commit.py
+      - name: Verify order
+        run: |
+          git diff --check
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('app/src/main/java/com/qujindai/facelivtlab/MainActivity.java').read_text()
+          assert s.index('EnrollmentCommitPlan.build(') < s.index('historyStore.saveVersion(')
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/qujindai/facelivtlab/MainActivity.java
+          git commit -m "fix: preflight all R5 template updates before history publish"
+          git push origin HEAD:feat/r5-identity-guard-history
