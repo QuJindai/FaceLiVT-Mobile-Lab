@@ -20,16 +20,32 @@ public final class FaceAligner {
             70.7299f, 92.2041f
     };
 
+    public static final class AlignmentResult {
+        public final Bitmap aligned;
+        public final FaceAlignmentDiagnostics diagnostics;
+
+        AlignmentResult(Bitmap aligned, FaceAlignmentDiagnostics diagnostics) {
+            this.aligned = aligned;
+            this.diagnostics = diagnostics;
+        }
+    }
+
     private FaceAligner() {}
 
+    /** Compatibility API retained for R3 callers. */
     public static Bitmap align(Bitmap source, Face face) {
+        return alignWithDiagnostics(source, face).aligned;
+    }
+
+    public static AlignmentResult alignWithDiagnostics(Bitmap source, Face face) {
         FaceLandmark le = face.getLandmark(FaceLandmark.LEFT_EYE);
         FaceLandmark re = face.getLandmark(FaceLandmark.RIGHT_EYE);
         FaceLandmark nose = face.getLandmark(FaceLandmark.NOSE_BASE);
         FaceLandmark ml = face.getLandmark(FaceLandmark.MOUTH_LEFT);
         FaceLandmark mr = face.getLandmark(FaceLandmark.MOUTH_RIGHT);
+        int landmarkCount = countPresent(le, re, nose, ml, mr);
 
-        if (le != null && re != null && nose != null && ml != null && mr != null) {
+        if (landmarkCount == 5) {
             float[] src = {
                     le.getPosition().x, le.getPosition().y,
                     re.getPosition().x, re.getPosition().y,
@@ -49,12 +65,21 @@ public final class FaceAligner {
                 Canvas canvas = new Canvas(out);
                 Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
                 canvas.drawBitmap(source, matrix, paint);
-                return out;
+                FaceAlignmentDiagnostics diagnostics = FaceAlignmentDiagnostics.fromSimilarity(
+                        src, ARC_FACE_5, affine, landmarkCount, false);
+                return new AlignmentResult(out, diagnostics);
             } catch (IllegalArgumentException ignored) {
                 // Fall through to robust crop when landmarks are degenerate.
             }
         }
-        return cropFallback(source, face.getBoundingBox());
+        return new AlignmentResult(cropFallback(source, face.getBoundingBox()),
+                FaceAlignmentDiagnostics.fallback(landmarkCount));
+    }
+
+    private static int countPresent(FaceLandmark... landmarks) {
+        int count = 0;
+        for (FaceLandmark landmark : landmarks) if (landmark != null) count++;
+        return count;
     }
 
     private static Bitmap cropFallback(Bitmap source, Rect box) {
