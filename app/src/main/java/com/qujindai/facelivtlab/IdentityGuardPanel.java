@@ -3,7 +3,7 @@ package com.qujindai.facelivtlab;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
-import android.view.View;
+import android.util.AttributeSet;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -40,7 +40,11 @@ public final class IdentityGuardPanel extends LinearLayout {
     private boolean suppressVersionCallback;
 
     public IdentityGuardPanel(Context context) {
-        super(context);
+        this(context, null);
+    }
+
+    public IdentityGuardPanel(Context context, AttributeSet attrs) {
+        super(context, attrs);
         setOrientation(VERTICAL);
         setPadding(dp(10), dp(9), dp(10), dp(9));
         setBackgroundColor(Color.rgb(25, 39, 47));
