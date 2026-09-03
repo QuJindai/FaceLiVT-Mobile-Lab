@@ -62,7 +62,11 @@ for code_fragment in (
 ):
     require(code_fragment in main_text, f"MainActivity missing {code_fragment}")
 
-require("btnExport.setEnabled(sessionLogger.size() > 0)" in main_text,
+csv_state_fragments = (
+    "btnExport.setEnabled(sessionLogger.size() > 0)",
+    "btnExport.setEnabled(csvRows > 0)",
+)
+require(any(fragment in main_text for fragment in csv_state_fragments),
         "CSV button must expose a real enabled/disabled state")
 require("btnEnroll.setEnabled(" in main_text,
         "enrollment button must expose a real enabled/disabled state")
