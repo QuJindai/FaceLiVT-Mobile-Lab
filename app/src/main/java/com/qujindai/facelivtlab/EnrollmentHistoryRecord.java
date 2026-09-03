@@ -45,6 +45,33 @@ public final class EnrollmentHistoryRecord {
         for (ModelVariant variant : ModelVariant.values()) this.models.put(variant, models.get(variant).copy());
     }
 
+    public static EnrollmentHistoryRecord fromSession(String identity, int version, long timestampMs,
+                                                      String profile, int effectiveSamplesBefore,
+                                                      int effectiveSamplesAfter, EnrollmentSession session,
+                                                      List<AlignmentGeometry> geometries) {
+        if (session == null || geometries == null || geometries.size() != FRAME_COUNT) {
+            throw new IllegalArgumentException("five-frame session and geometry evidence required");
+        }
+        EnrollmentSession.Summary qualitySource = session.summary(ModelVariant.S);
+        if (qualitySource.sampleCount != FRAME_COUNT || qualitySource.qualities.size() != FRAME_COUNT) {
+            throw new IllegalArgumentException("successful five-frame enrollment session required");
+        }
+        List<FrameRecord> frames = new ArrayList<>();
+        for (int i = 0; i < FRAME_COUNT; i++) frames.add(new FrameRecord(qualitySource.qualities.get(i), geometries.get(i)));
+
+        EnumMap<ModelVariant, ModelRecord> models = new EnumMap<>(ModelVariant.class);
+        for (ModelVariant variant : ModelVariant.values()) {
+            EnrollmentSession.Summary s = session.summary(variant);
+            if (s.sampleCount != FRAME_COUNT) throw new IllegalArgumentException("missing five samples for " + variant.storageKey);
+            models.put(variant, new ModelRecord(session.embeddings(variant), s.centroid, s.sampleToCentroid,
+                    s.averageQuality, s.stability, s.dispersion, s.embeddingCoverage, s.poseCoverage,
+                    s.coverage, s.minPairCosine, s.meanPairCosine, s.outlierIndex,
+                    s.outlierMeanCosine, s.allSamplesPassHardGate));
+        }
+        return new EnrollmentHistoryRecord(identity, version, timestampMs, profile,
+                effectiveSamplesBefore, effectiveSamplesAfter, frames, models);
+    }
+
     public EnrollmentSession toEnrollmentSession() {
         EnrollmentSession session = new EnrollmentSession();
         for (ModelVariant variant : ModelVariant.values()) {
