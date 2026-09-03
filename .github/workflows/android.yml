@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [ main, feat/r2-big-validation, fix/r2-ui-safe-area, feat/r3-face-microscope, feat/r31-calibration-microscope ]
+    branches: [ main, feat/r2-big-validation, fix/r2-ui-safe-area, feat/r3-face-microscope, feat/r31-calibration-microscope, fix/r32-model-microscope-linkage ]
   workflow_dispatch:
 
 jobs:
@@ -24,6 +24,9 @@ jobs:
 
       - name: Verify R3.1 calibration contract
         run: python tools/verify_r31_calibration.py
+
+      - name: Verify model microscope linkage
+        run: python tools/verify_model_microscope_linkage.py
 
       - name: Install model export toolchain
         run: |
