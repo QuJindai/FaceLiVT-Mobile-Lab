@@ -1,0 +1,39 @@
+name: R5 Apply Main Integration
+
+on:
+  push:
+    branches: [ feat/r5-identity-guard-history ]
+    paths:
+      - '.github/workflows/r5-apply-main-integration.yml'
+      - 'tools/apply_r5_main_integration.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/r5-identity-guard-history
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply deterministic R5 integration patch
+        run: python tools/apply_r5_main_integration.py
+      - name: Verify expected patch surface
+        run: |
+          git diff --check
+          grep -q "IdentityGuardEngine" app/src/main/java/com/qujindai/facelivtlab/MainActivity.java
+          grep -q "FaceLiVT R5 · 身份防重学习显微镜" app/src/main/res/layout/activity_main.xml
+          grep -q "versionCode 7" app/build.gradle
+      - name: Commit integrated R5 flow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/qujindai/facelivtlab/MainActivity.java app/src/main/res/layout/activity_main.xml app/build.gradle
+          git commit -m "feat: integrate R5 duplicate guard and history replay"
+          git push origin HEAD:feat/r5-identity-guard-history
