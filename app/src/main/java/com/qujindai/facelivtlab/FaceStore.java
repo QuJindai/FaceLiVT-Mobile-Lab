@@ -6,7 +6,10 @@ import android.util.Base64;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 public final class FaceStore {
@@ -39,12 +42,28 @@ public final class FaceStore {
             System.arraycopy(embedding, 0, merged, 0, embedding.length);
             count = 0;
         }
+        saveTemplateSum(name, variant, merged, count + 1);
+    }
+
+    /** Replace the model-specific identity template with an R3 quality-weighted centroid. */
+    public synchronized void replaceTemplate(String name, ModelVariant variant, float[] centroid, int sampleCount) {
+        if (name == null || name.trim().isEmpty() || centroid == null || centroid.length == 0) {
+            throw new IllegalArgumentException("name and centroid are required");
+        }
+        int count = Math.max(1, sampleCount);
+        float[] normalized = VectorMath.normalize(centroid);
+        float[] storedSum = new float[normalized.length];
+        for (int i = 0; i < normalized.length; i++) storedSum[i] = normalized[i] * count;
+        saveTemplateSum(name.trim(), variant, storedSum, count);
+    }
+
+    private void saveTemplateSum(String name, ModelVariant variant, float[] vectorSum, int count) {
         Set<String> names = new HashSet<>(prefs.getStringSet("names", new HashSet<>()));
         names.add(name);
         prefs.edit()
                 .putStringSet("names", names)
-                .putString(vectorKey, encode(merged))
-                .putInt(countKey, count + 1)
+                .putString(TemplateKey.vector(name, variant), encode(vectorSum))
+                .putInt(TemplateKey.count(name, variant), Math.max(1, count))
                 .apply();
     }
 
@@ -53,17 +72,35 @@ public final class FaceStore {
     }
 
     public synchronized Match bestMatch(ModelVariant variant, float[] embedding) {
+        List<Match> matches = topMatches(variant, embedding, 1);
+        return matches.isEmpty() ? null : matches.get(0);
+    }
+
+    /** Ordered, model-space-safe Top-K results for the recognition microscope. */
+    public synchronized List<Match> topMatches(ModelVariant variant, float[] embedding, int limit) {
+        int requested = Math.max(0, limit);
+        List<Match> out = new ArrayList<>();
+        if (requested == 0 || embedding == null || embedding.length == 0) return out;
         Set<String> names = prefs.getStringSet("names", new HashSet<>());
-        String bestName = null;
-        float best = -1f;
         for (String name : names) {
             migrateLegacySIfNeeded(name, variant);
             float[] ref = decode(prefs.getString(TemplateKey.vector(name, variant), null));
             if (ref == null || ref.length != embedding.length) continue;
-            float score = VectorMath.cosine(embedding, ref);
-            if (score > best) { best = score; bestName = name; }
+            out.add(new Match(name, VectorMath.cosine(embedding, ref)));
         }
-        return bestName == null ? null : new Match(bestName, best);
+        out.sort(Comparator.comparingDouble((Match match) -> match.similarity).reversed());
+        if (out.size() > requested) return new ArrayList<>(out.subList(0, requested));
+        return out;
+    }
+
+    public synchronized float[] template(String name, ModelVariant variant) {
+        migrateLegacySIfNeeded(name, variant);
+        float[] ref = decode(prefs.getString(TemplateKey.vector(name, variant), null));
+        return ref == null ? null : VectorMath.normalize(ref);
+    }
+
+    public synchronized Set<String> identityNames() {
+        return new HashSet<>(prefs.getStringSet("names", new HashSet<>()));
     }
 
     public synchronized boolean hasTemplate(String name, ModelVariant variant) {
