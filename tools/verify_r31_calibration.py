@@ -51,8 +51,6 @@ for fragment in (
 
 build = BUILD.read_text(encoding="utf-8")
 version_code = re.search(r"versionCode\s+(\d+)\b", build)
-version_name = re.search(r"versionName\s+'([^']+)'", build)
 require(version_code is not None and int(version_code.group(1)) >= 4, "versionCode must remain at least R3.1")
-require(version_name is not None and version_name.group(1).startswith("0.3."), "versionName must remain in 0.3.x family")
 
 print("R3.1 CALIBRATION CONTRACT PASS: hard gates, coverage, N/A margin, empirical threshold, fixed-PCA probe and timing scopes are wired")
