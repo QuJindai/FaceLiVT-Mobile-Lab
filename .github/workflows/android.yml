@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [ main, feat/r2-big-validation, fix/r2-ui-safe-area ]
+    branches: [ main, feat/r2-big-validation, fix/r2-ui-safe-area, feat/r3-face-microscope ]
   workflow_dispatch:
 
 jobs:
