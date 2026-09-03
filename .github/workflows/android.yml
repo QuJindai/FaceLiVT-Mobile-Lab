@@ -62,7 +62,7 @@ jobs:
           cd upstream-facelivt
           git checkout d99d86607c7c05540c74e815e5a88847f7e667db
 
-      - name: Export FaceLiVTv2 XS S M and verify fidelity
+      - name: Export FaceLiVTv2 XS S M diagnostics and verify fidelity
         env:
           HF_HUB_DISABLE_TELEMETRY: '1'
         run: |
@@ -77,10 +77,10 @@ jobs:
       - name: Assemble APK
         run: gradle :app:assembleDebug --stacktrace
 
-      - name: Verify R3.2 APK contents and ABI
+      - name: Verify R4 APK contents and ABI
         run: |
           SRC=app/build/outputs/apk/debug/app-debug.apk
-          APK=FaceLiVT-Mobile-Lab-R3.2-debug.apk
+          APK=FaceLiVT-Mobile-Lab-R4-debug.apk
           cp "$SRC" "$APK"
           CONTENTS="$(unzip -Z1 "$APK")"
           for model in facelivtv2_xs.onnx facelivtv2_s.onnx facelivtv2_m.onnx; do
@@ -98,7 +98,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FaceLiVT-Mobile-Lab-R3.2-debug-apk
-          path: FaceLiVT-Mobile-Lab-R3.2-debug.apk
+          name: FaceLiVT-Mobile-Lab-R4-debug-apk
+          path: FaceLiVT-Mobile-Lab-R4-debug.apk
           if-no-files-found: error
           retention-days: 30
