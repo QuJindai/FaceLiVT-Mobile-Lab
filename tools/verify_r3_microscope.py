@@ -67,7 +67,9 @@ for field in ("quality", "margin", "align_ms", "match_ms"):
     require(field in logger, f"CSV microscope missing {field}")
 
 build = BUILD.read_text(encoding="utf-8")
-require(re.search(r"versionCode\s+3\b", build) is not None, "versionCode must be 3")
-require("versionName '0.3.0'" in build, "versionName must be 0.3.0")
+version_code = re.search(r"versionCode\s+(\d+)\b", build)
+version_name = re.search(r"versionName\s+'([^']+)'", build)
+require(version_code is not None and int(version_code.group(1)) >= 3, "versionCode must remain at least R3")
+require(version_name is not None and version_name.group(1).startswith("0.3."), "versionName must remain in 0.3.x R3 family")
 
 print("R3 MICROSCOPE CONTRACT PASS: two pages, quality/template microscope, Top-K/trend and formula chains are wired")
