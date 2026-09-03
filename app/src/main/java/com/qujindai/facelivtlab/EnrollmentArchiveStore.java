@@ -8,7 +8,13 @@ public final class EnrollmentArchiveStore {
     private final SharedPreferences prefs;
 
     public EnrollmentArchiveStore(Context context) {
-        prefs = context.getSharedPreferences("enrollment_microscope_archive", Context.MODE_PRIVATE);
+        this(context.getSharedPreferences("enrollment_microscope_archive", Context.MODE_PRIVATE));
+    }
+
+    /** Package-private injection keeps lifecycle deletion unit-testable. */
+    EnrollmentArchiveStore(SharedPreferences prefs) {
+        if (prefs == null) throw new IllegalArgumentException("preferences required");
+        this.prefs = prefs;
     }
 
     public void save(String identity, String archive) {
@@ -35,6 +41,24 @@ public final class EnrollmentArchiveStore {
         } catch (RuntimeException ignored) {
             return null;
         }
+    }
+
+    public void deleteArchive(String identity) {
+        if (identity == null || identity.trim().isEmpty()) return;
+        prefs.edit().remove("archive/" + identity.trim()).apply();
+    }
+
+    public void deleteReference(String identity, ModelVariant variant) {
+        if (identity == null || identity.trim().isEmpty() || variant == null) return;
+        prefs.edit().remove(referenceKey(identity, variant)).apply();
+    }
+
+    public void deleteIdentityData(String identity) {
+        if (identity == null || identity.trim().isEmpty()) return;
+        String id = identity.trim();
+        SharedPreferences.Editor editor = prefs.edit().remove("archive/" + id);
+        for (ModelVariant variant : ModelVariant.values()) editor.remove(referenceKey(id, variant));
+        editor.apply();
     }
 
     private static String referenceKey(String identity, ModelVariant variant) {
