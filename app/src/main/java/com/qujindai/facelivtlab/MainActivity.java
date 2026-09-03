@@ -111,6 +111,7 @@ public class MainActivity extends AppCompatActivity {
     private final EnumMap<ModelVariant, PerformanceWindow> performance = new EnumMap<>(ModelVariant.class);
     private final SessionLogger sessionLogger = new SessionLogger();
     private final RecognitionTrend recognitionTrend = new RecognitionTrend(30);
+    private final MicroscopeSelectionState microscopeSelection = new MicroscopeSelectionState();
 
     private volatile String enrollmentName;
     private volatile DegradationProfile profile = DegradationProfile.P480;
@@ -133,7 +134,6 @@ public class MainActivity extends AppCompatActivity {
     private ProcessCameraProvider cameraProvider;
 
     private List<FaceStore.Match> lastDisplayTop = new ArrayList<>();
-    private ModelVariant lastDisplayVariant = ModelVariant.S;
     private ThresholdCalibrator.Result lastCalibration;
     private EmbeddingProjector.Model probeProjectionModel;
     private String probeProjectionKey = "";
@@ -283,17 +283,8 @@ public class MainActivity extends AppCompatActivity {
         modeAdapter.setDropDownViewResource(R.layout.spinner_dropdown_item);
         spinnerModel.setAdapter(modeAdapter);
         spinnerModel.setSelection(0);
-        spinnerModel.setOnItemSelectedListener(new SimpleItemSelectedListener(position -> {
-            modelMode = modes[position];
-            lastDisplayVariant = displayVariantForMode();
-            clearFusion();
-            recognitionTrend.clear();
-            lastDisplayTop = new ArrayList<>();
-            if (topKChart != null) topKChart.setResults(lastDisplayTop, threshold);
-            if (trendChart != null) trendChart.setSeries(new float[0], new float[0], threshold);
-            clearProbeProjection();
-            refreshCalibration(lastDisplayVariant);
-        }));
+        spinnerModel.setOnItemSelectedListener(new SimpleItemSelectedListener(position ->
+                applyRecognitionModelSelection(modes[position])));
 
         ModelVariant[] variants = ModelVariant.values();
         ArrayAdapter<ModelVariant> inspectAdapter = new ArrayAdapter<>(this, R.layout.spinner_item, variants);
@@ -303,6 +294,14 @@ public class MainActivity extends AppCompatActivity {
         spinnerEnrollmentInspectModel.setOnItemSelectedListener(new SimpleItemSelectedListener(position -> {
             inspectVariant = variants[position];
             renderEnrollmentMicroscope(inspectVariant);
+            if (modelMode == ModelMode.COMPARE) {
+                MicroscopeSelectionState.Snapshot focused = microscopeSelection.selectFocus(inspectVariant);
+                clearFusion();
+                recognitionTrend.clear();
+                clearProbeProjection();
+                refreshCalibration(focused.focus);
+                renderRecognitionModelPendingState(focused);
+            }
         }));
 
         updateThreshold(seekThreshold.getProgress());
@@ -311,6 +310,67 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onStartTrackingTouch(SeekBar seekBar) {}
             @Override public void onStopTrackingTouch(SeekBar seekBar) {}
         });
+    }
+
+
+    private void applyRecognitionModelSelection(ModelMode selectedMode) {
+        modelMode = selectedMode == null ? ModelMode.S : selectedMode;
+        MicroscopeSelectionState.Snapshot selection = microscopeSelection.selectMode(modelMode);
+        ModelVariant focus = selection.focus;
+
+        if (modelMode != ModelMode.COMPARE) {
+            inspectVariant = focus;
+            int index = variantIndex(focus);
+            if (spinnerEnrollmentInspectModel != null && spinnerEnrollmentInspectModel.getSelectedItemPosition() != index) {
+                spinnerEnrollmentInspectModel.setSelection(index);
+            }
+            renderEnrollmentMicroscope(focus);
+        }
+
+        clearFusion();
+        recognitionTrend.clear();
+        lastDisplayTop = new ArrayList<>();
+        clearProbeProjection();
+        refreshCalibration(focus);
+        renderRecognitionModelPendingState(selection);
+        updateActionState();
+    }
+
+    private void renderRecognitionModelPendingState(MicroscopeSelectionState.Snapshot selection) {
+        if (selection == null) return;
+        ModelVariant focus = selection.focus;
+        if (topKChart != null) topKChart.setResults(new ArrayList<>(), threshold);
+        if (trendChart != null) trendChart.setSeries(new float[0], new float[0], threshold);
+
+        String modeText = selection.mode == ModelMode.COMPARE
+                ? "COMPARE · 显微镜焦点 " + focus.storageKey
+                : focus.storageKey;
+        if (txtResult != null) txtResult.setText("模型已切换 · " + modeText + " · 等待该模型新帧");
+        if (txtRecognitionQuality != null) {
+            txtRecognitionQuality.setText("Probe 质量（模型无关）· 等待 " + focus.storageKey + " 新帧");
+        }
+        if (txtPipeline != null) {
+            txtPipeline.setText("模型切换 → " + modeText + " → 清空旧融合/趋势 → 等待新帧；旧模型在途帧不会再回写显微镜");
+        }
+        if (txtRecognitionFormula != null) {
+            txtRecognitionFormula.setText("公式链 · " + focus.storageKey + "\n等待该模型新帧后刷新 Top-K / margin / gate / 512D cosine");
+        }
+        PerformanceWindow window = performance.get(focus);
+        if (txtPerf != null && window != null) {
+            txtPerf.setText(String.format(Locale.US,
+                    "显微镜焦点 %s · 本帧等待中\n该模型30帧均值 detect %.1f / align %.1f / infer %.1f / match %.1f / total %.1f ms",
+                    focus.storageKey, window.avgDetectMs(), window.avgAlignMs(), window.avgInferMs(),
+                    window.avgMatchMs(), window.avgTotalMs()));
+        }
+        if (txtProbeEmbeddingInfo != null) {
+            txtProbeEmbeddingInfo.setText("显微镜焦点 " + focus.storageKey + " · 等待该模型 Probe。2D 只观察，最终仍用 512D cosine。");
+        }
+    }
+
+    private static int variantIndex(ModelVariant variant) {
+        ModelVariant[] variants = ModelVariant.values();
+        for (int i = 0; i < variants.length; i++) if (variants[i] == variant) return i;
+        return 0;
     }
 
     private void installR31Panels() {
@@ -741,16 +801,17 @@ public class MainActivity extends AppCompatActivity {
             probeTrail.clear();
             lastProbeTrackingId = trackingId;
         }
+        MicroscopeSelectionState.Snapshot frameSelection = microscopeSelection.snapshot();
         StringBuilder results = new StringBuilder();
         long timestamp = System.currentTimeMillis();
-        ModelVariant displayVariant = displayVariantForMode();
+        ModelVariant displayVariant = frameSelection.focus;
         List<FaceStore.Match> displayTop = new ArrayList<>();
         RecognitionDecision displayDecision = null;
         float[] displayFusedEmbedding = null;
         long displayInfer = 0L, displayMatch = 0L, displayTotal = 0L;
         int displayFusedFrames = 0;
 
-        for (ModelVariant variant : modelMode.variants()) {
+        for (ModelVariant variant : frameSelection.mode.variants()) {
             RecognizerBank.TimedEmbedding te = recognizerBank.embed(variant, aligned);
             float[] fusedEmbedding = fusion.get(variant).push(trackingId, te.embedding);
             int fusedFrames = fusion.get(variant).size();
@@ -798,8 +859,8 @@ public class MainActivity extends AppCompatActivity {
         long finalTotal = displayTotal;
         int finalFusedFrames = displayFusedFrames;
         runOnUiThread(() -> {
+            if (!microscopeSelection.isCurrent(frameSelection)) return;
             lastDisplayTop = finalTop;
-            lastDisplayVariant = displayVariant;
             txtResult.setText(results.toString());
             txtMetrics.setText(metricLine(sourceW, sourceH, degraded, detectorBitmap, active, faceW, faceH, detectMs)
                     + " | Tid=" + String.format(Locale.US,"%.3f",threshold) + " | 库=" + faceStore.identityCount() + " | CSV=" + sessionLogger.size());
@@ -926,9 +987,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private ModelVariant displayVariantForMode() {
-        for (ModelVariant variant : modelMode.variants()) if (variant == ModelVariant.S) return variant;
-        ModelVariant[] variants = modelMode.variants();
-        return variants.length == 0 ? ModelVariant.S : variants[0];
+        return microscopeSelection.snapshot().focus;
     }
 
     private void clearFusion() {
