@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 
+# One-shot product patch; removed by the patch workflow after GREEN verification.
 path = Path("app/src/main/java/com/qujindai/facelivtlab/MainActivity.java")
 text = path.read_text(encoding="utf-8")
 
