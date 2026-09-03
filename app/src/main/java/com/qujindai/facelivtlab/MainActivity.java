@@ -143,7 +143,6 @@ public class MainActivity extends AppCompatActivity {
     private volatile boolean cameraReady = false;
     private volatile Page currentPage = Page.ENROLLMENT;
     private long lastFrameMs = 0;
-    private long noTrackingSequence = 0;
     private String enrollmentProfileAtStart = "";
 
     private EnrollmentSession enrollmentSession = new EnrollmentSession();
@@ -622,9 +621,9 @@ public class MainActivity extends AppCompatActivity {
         if (enrollmentModelMicroscope != null) enrollmentModelMicroscope.clearStats(ModelTopology.forVariant(inspectVariant));
         if (identityGuardPanel != null) identityGuardPanel.setVisibility(View.GONE);
         if (txtHistoryStrip != null) txtHistoryStrip.setText("新录入采样 · " + enrollmentIntent + " · S1-S5");
-        txtEnrollmentArchive.setText("正在建立 " + name + " 的 R5 学习版本。
-硬门通过后筛掉近重复帧；5 张样本同时追求稳定性与覆盖性。
-本轮档位：" + enrollmentProfileAtStart);
+        txtEnrollmentArchive.setText("正在建立 " + name + " 的 R5 学习版本。\n" +
+                "硬门通过后筛掉近重复帧；5 张样本同时追求稳定性与覆盖性。\n" +
+                "本轮档位：" + enrollmentProfileAtStart);
         txtEnrollmentFormula.setText("等待合格且有差异的样本……");
         clearFusion();
         identityGuard.reset();
@@ -729,7 +728,18 @@ public class MainActivity extends AppCompatActivity {
                              int sourceW, int sourceH, DegradationProfile active, long detectMs) {
         ThermalProbe.Snapshot thermal = ThermalProbe.read(this);
         if (faces.isEmpty()) {
+            if (currentPage == Page.ENROLLMENT && enrollmentRemaining.get() == 0 && existingIdentityContext.isEmpty()) {
+                identityGuard.reset();
+                guardGeneration = identityGuard.captureGeneration();
+                guardTrackingId = Integer.MIN_VALUE;
+                lastGuardProbeMs = 0L;
+                lastGuardCandidates = new ArrayList<>();
+            }
             runOnUiThread(() -> {
+                if (currentPage == Page.ENROLLMENT && enrollmentRemaining.get() == 0 && existingIdentityContext.isEmpty()) {
+                    renderIdentityGuardPanel();
+                    updateActionState();
+                }
                 txtResult.setText("未检测到人脸");
                 txtMetrics.setText(metricLine(sourceW, sourceH, degraded, detectorBitmap, active, 0, 0, detectMs));
                 txtPerf.setText(thermalLine(thermal));
@@ -752,7 +762,7 @@ public class MainActivity extends AppCompatActivity {
         int faceW = Math.max(1, Math.round(face.getBoundingBox().width() * degraded.getWidth() / (float) detectorBitmap.getWidth()));
         int faceH = Math.max(1, Math.round(face.getBoundingBox().height() * degraded.getHeight() / (float) detectorBitmap.getHeight()));
         Integer tracked = face.getTrackingId();
-        int trackingId = tracked != null ? tracked : -1 - (int)(++noTrackingSequence & 0x3fffffff);
+        int trackingId = tracked != null ? tracked : -1;
 
         try {
             long alignStart = SystemClock.elapsedRealtimeNanos();
