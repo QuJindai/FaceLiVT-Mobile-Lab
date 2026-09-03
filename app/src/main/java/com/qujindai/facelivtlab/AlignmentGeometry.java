@@ -31,6 +31,22 @@ public final class AlignmentGeometry {
         this.usedFallback = usedFallback;
     }
 
+    /** Exact reconstruction path for immutable R5 learning-history evidence. */
+    public static AlignmentGeometry restore(int landmarkCount, float[] sourcePoints, float[] targetPoints,
+                                            float[] transformedPoints, float eyeDistancePx, float rollDeg,
+                                            float scale, float translationPx, float meanResidualPx,
+                                            float maxResidualPx, boolean usedFallback) {
+        int count = Math.max(0, Math.min(5, landmarkCount));
+        if (!usedFallback) {
+            if (count != 5 || sourcePoints == null || targetPoints == null || transformedPoints == null ||
+                    sourcePoints.length != 10 || targetPoints.length != 10 || transformedPoints.length != 10) {
+                throw new IllegalArgumentException("full five-point geometry requires three 10-float point arrays");
+            }
+        }
+        return new AlignmentGeometry(count, sourcePoints, targetPoints, transformedPoints,
+                eyeDistancePx, rollDeg, scale, translationPx, meanResidualPx, maxResidualPx, usedFallback);
+    }
+
     public static AlignmentGeometry fromTransform(float[] src, float[] dst, float[] affine) {
         if (src == null || dst == null || affine == null || src.length != 10 || dst.length != 10 || affine.length != 6) {
             throw new IllegalArgumentException("five source/target points and 6 affine coefficients are required");
