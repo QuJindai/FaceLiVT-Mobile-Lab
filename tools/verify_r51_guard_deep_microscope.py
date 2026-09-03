@@ -48,7 +48,10 @@ require("return diagnostic.embedding;" in helper,
         "focused diagnostic embedding must be reused for Guard matching instead of duplicated inference")
 
 build = BUILD.read_text(encoding="utf-8")
-require(re.search(r"versionCode\s+8\b", build) is not None, "versionCode must be 8")
-require("versionName '0.5.1'" in build, "versionName must be 0.5.1")
+code_match = re.search(r"versionCode\s+(\d+)\b", build)
+require(code_match is not None and int(code_match.group(1)) >= 8,
+        "versionCode must retain the R5.1 focused-deep capability")
+require(re.search(r"versionName\s+'0\.5\.\d+'", build) is not None,
+        "versionName must remain in the R5 0.5.x release line")
 
 print("R5.1 GUARD DEEP MICROSCOPE PASS: Guard live frames feed the focused enrollment 18-block microscope without duplicate focused inference")
