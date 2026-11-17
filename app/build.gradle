@@ -7,7 +7,7 @@ android {
     compileSdk 36
 
     defaultConfig {
-        applicationId 'com.qujindai.facelivtlab'
+        applicationId 'com.qujindai.facelivtlab.nnapi'
         minSdk 26
         targetSdk 36
         versionCode 9
@@ -47,3 +47,4 @@ dependencies {
     implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.29.0'
     testImplementation 'junit:junit:4.13.2'
 }
+
