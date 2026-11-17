@@ -53,6 +53,9 @@ public final class FaceRecognizer implements AutoCloseable {
         env = OrtEnvironment.getEnvironment();
         byte[] model = readAsset(context, assetName);
         OrtSession.SessionOptions options = new OrtSession.SessionOptions();
+        options.addNnapi(java.util.EnumSet.of(ai.onnxruntime.providers.NNAPIFlags.CPU_DISABLED));
+        options.setLoggerId("T8U-NNAPI-" + variant);
+        options.setSessionLogLevel(ai.onnxruntime.OrtLoggingLevel.ORT_LOGGING_LEVEL_VERBOSE);
         options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
         options.setIntraOpNumThreads(Math.max(2, Runtime.getRuntime().availableProcessors() / 2));
         session = env.createSession(model, options);
@@ -155,3 +158,4 @@ public final class FaceRecognizer implements AutoCloseable {
         session.close();
     }
 }
+
