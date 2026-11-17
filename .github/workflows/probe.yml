@@ -1,0 +1,12 @@
+name: NNAPI Probe
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: $ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang tools/nnapi_probe.c -lneuralnetworks -o nnapi-probe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nnapi-probe
+          path: nnapi-probe
